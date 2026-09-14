@@ -285,6 +285,7 @@ app.post('/api/auth/google', async (req, res) => {
         `
         INSERT INTO users (
           full_name,
+          password_hash,
           email,
           google_id,
           avatar_url,
