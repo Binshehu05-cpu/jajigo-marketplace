@@ -4,6 +4,7 @@ import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
+import {randomBytes} from 'node:crypto';
 import {OAuth2Client} from 'google-auth-library';
 
 const {Pool}=pg;
@@ -141,7 +142,6 @@ app.post('/api/auth/login', async (req, res) => {
         full_name,
         email,
         avatar_url,
-        password_hash,
         role,
         status
       FROM users
@@ -280,6 +280,7 @@ app.post('/api/auth/google', async (req, res) => {
 
     } else {
       // Create a new Google customer account
+      const googlePasswordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 12);
       const created = await pool.query(
         `
         INSERT INTO users (
@@ -290,7 +291,7 @@ app.post('/api/auth/google', async (req, res) => {
           role,
           status
         )
-        VALUES ($1,$2,$3,$4,'customer','active')
+        VALUES ($1,$2,$3,$4,$5,'customer','active')
         RETURNING
           id,
           phone,
@@ -301,7 +302,7 @@ app.post('/api/auth/google', async (req, res) => {
           role,
           status
         `,
-        [name, email, googleId, avatarUrl]
+        [name, googlePasswordHash, email, googleId, avatarUrl]
       );
 
       user = created.rows[0];
