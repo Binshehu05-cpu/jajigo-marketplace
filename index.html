@@ -276,6 +276,7 @@ nav.tabs{position:fixed!important}
   #jgFloatingAI{bottom:calc(82px + env(safe-area-inset-bottom))!important}
 }
 </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div class="jg-ambient-icons" aria-hidden="true">
@@ -656,6 +657,55 @@ function cartCount(){
   return ids;
 }
 
+/* ---------- Google customer sign-in ---------- */
+const GOOGLE_CLIENT_ID='186325933569-f356ld9i6m4k25ebvo088ir664fnvp34.apps.googleusercontent.com';
+let jgGoogleInitialized=false;
+let jgGoogleCallback=null;
+
+function renderJajiGoGoogleButton(){
+  const el=document.getElementById('googleBtn');
+  if(!el)return;
+  if(!window.google?.accounts?.id){
+    setTimeout(renderJajiGoGoogleButton,300);
+    return;
+  }
+  if(!jgGoogleInitialized){
+    google.accounts.id.initialize({
+      client_id:GOOGLE_CLIENT_ID,
+      callback:(response)=>{
+        if(typeof jgGoogleCallback==='function')jgGoogleCallback(response);
+      },
+      auto_select:false,
+      cancel_on_tap_outside:true
+    });
+    jgGoogleInitialized=true;
+  }
+  el.innerHTML='';
+  google.accounts.id.renderButton(el,{
+    theme:'outline',
+    size:'large',
+    width:Math.min(400,Math.max(240,el.parentElement?.clientWidth||320)),
+    text:'continue_with',
+    shape:'rectangular',
+    logo_alignment:'left'
+  });
+}
+
+async function jgGoogleCustomerLogin(credential){
+  const r=await apiAuth('/api/auth/google',{credential});
+  if(!r.ok)return r;
+  if(r.user?.role && r.user.role!=='customer'){
+    return{ok:false,err:'Google sign-in is only available for customer accounts.'};
+  }
+  U={role:'customer',user:{...r.user,uiLang:r.user?.uiLang||S.uiLang||'en'},token:r.token,remoteCustomer:true};
+  setLang(U.user.uiLang||'en');
+  S.current={role:'customer',user:U.user,token:U.token||'local',remoteCustomer:true};
+  saveState();
+  await new Promise(resolve=>setTimeout(resolve,300));
+  await boot();
+  return{ok:true};
+}
+
 /* ---------- Auth screens ---------- */
 function showAuth(initialMsg){
   $('#hdr').style.display='none';$('#tabs').style.display='none';
@@ -674,6 +724,10 @@ function showAuth(initialMsg){
       ${mode==='register'?`<div class="field"><label>${L.name}</label><input id="aName" type="text" autocomplete="name"></div><div class="field"><label>Gmail / Email</label><input id="aEmail" type="email" placeholder="you@gmail.com" inputmode="email" autocomplete="email"></div>`:''}
       <div class="field"><label>${L.password}</label><input id="aPass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
       <button class="btn" id="aGo">${mode==='register'?L.register:L.login}</button>
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--mut)">
+        <span style="flex:1;height:1px;background:var(--line)"></span><span style="font-size:12px">OR</span><span style="flex:1;height:1px;background:var(--line)"></span>
+      </div>
+      <div id="googleBtn" style="display:flex;justify-content:center;min-height:44px"></div>
       <div class="auth-loading" id="authLoading" aria-live="polite">
         <span class="auth-spinner" aria-hidden="true"></span>
         <span>${mode==='register'?'Creating your account':'Signing you in'}<span class="auth-dots"><span>.</span><span>.</span><span>.</span></span></span>
@@ -688,8 +742,26 @@ function showAuth(initialMsg){
         </div>
       </div>
     </div>`;
+
     $('#mLogin').onclick=()=>{mode='login';initialMsg='';render()};
     $('#mRegister').onclick=()=>{mode='register';initialMsg='';render()};
+
+    jgGoogleCallback=async(response)=>{
+      if(!response?.credential){initialMsg='Google sign-in did not return a credential. Please try again.';render();return;}
+      const loading=$('#authLoading'),gbtn=$('#googleBtn');
+      if(loading)loading.classList.add('show');
+      if(gbtn)gbtn.style.pointerEvents='none';
+      try{
+        const r=await jgGoogleCustomerLogin(response.credential);
+        if(!r.ok){initialMsg=r.err||'Google sign-in failed. Please try again.';render();return;}
+      }catch(e){
+        console.error('JajiGo Google login error:',e);
+        initialMsg='Google sign-in failed. Please try again.';
+        render();
+      }
+    };
+    renderJajiGoGoogleButton();
+
     $('#aGo').onclick=async()=>{
       if($('#aGo').disabled)return;
       const ph=$('#aPhone').value.trim(),pw=$('#aPass').value;
@@ -717,6 +789,7 @@ function showAuth(initialMsg){
   }
   render();
 }
+
 window.useDemo=function(sel){
   const map={
     customer:['08011111111','demo1234'],
