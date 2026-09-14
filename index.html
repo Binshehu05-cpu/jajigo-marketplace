@@ -127,11 +127,6 @@ main{min-height:calc(100vh - 78px);background:transparent}
 <style id="jajigo-smart-ai-tracking">
 .smartchips{display:flex;gap:7px;overflow-x:auto;padding:2px 0 5px;scrollbar-width:none}.smartchips::-webkit-scrollbar{display:none}.smartchip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer}.smartchip:active{transform:scale(.97)}.smartrec{background:linear-gradient(135deg,#eefaf4,#fff);border:1px solid #d5eee2;border-radius:14px;padding:11px;margin:8px 0}.smartrec .reason{font-size:11.5px;color:var(--mut);margin-top:2px}.trackmap{height:250px;border-radius:14px;overflow:hidden;background:#eef2ef;border:1px solid var(--line);margin-top:10px}.trackdot{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--g3);font-size:19px}.livebadge{display:inline-flex;align-items:center;gap:5px;background:#eaf8f0;color:var(--g);border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800}.livebadge i{width:7px;height:7px;border-radius:50%;background:#19a463;display:inline-block;animation:livepulse 1.3s infinite}@keyframes livepulse{50%{opacity:.35;transform:scale(.75)}}
 </style>
-<style id="jajigo-live-voice-search">
-/* Live voice-search feedback; keeps the existing JajiGo AI design intact. */
-.ai-adv-card.jg-voice-listening{border-color:var(--brand-orange,#ff7a00);box-shadow:0 0 0 3px rgba(255,122,0,.12);transform:translateY(-1px)}
-</style>
-
 <style id="jajigo-animated-background">
 /* JajiGo living marketplace background — lightweight, self-contained, mobile-friendly */
 body::before{
@@ -580,69 +575,54 @@ function categoryById(id){return S.categories.find(c=>c.id===id)}
 function categoryBySlug(slug){return S.categories.find(c=>c.slug===slug)||null}
 
 /* ---------- Sessions ---------- */
-async function login(phone,password){
-  const norm=normPhone(phone);
-  /* Phase 1: use the real backend when configured. Local demo/admin auth is
-     retained only as a compatibility fallback when the backend is unavailable. */
-  if(window.jajigoBackend?.base?.()){
-    try{
-      const r=await window.jajigoBackend.request('/api/auth/login',{method:'POST',body:JSON.stringify({phone:norm,password})});
-      if(r?.token){
-        localStorage.setItem('JAJIGO_MARKETPLACE_TOKEN',r.token);
-        return {ok:true,role:r.user.role,user:r.user,backend:true,token:r.token};
-      }
-      return {ok:false,err:r?.error||'Login failed.'};
-    }catch(e){
-      /* Do not silently accept wrong credentials from localStorage when the
-         server is reachable; only fall through for genuine connectivity/config errors. */
-      const msg=String(e?.message||e);
-      if(!/Backend URL is not configured|Failed to fetch|NetworkError|fetch|CORS|unavailable|timeout/i.test(msg))
-        return {ok:false,err:msg||'Login failed.'};
-    }
-  }
+const JAJIGO_API='https://jajigo-marketplace.onrender.com';
+function normEmail(v){return String(v||'').trim().toLowerCase()}
+function validEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
+async function apiAuth(path,body){
+  try{
+    const res=await fetch(JAJIGO_API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await res.json().catch(()=>({ok:false,error:'Server returned an invalid response.'}));
+    if(!res.ok||!data.ok)return{ok:false,err:data.error||'Request failed. Please try again.'};
+    return{ok:true,...data};
+  }catch(e){console.error('JajiGo API error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
+}
+async function login(loginId,password){
+  const raw=String(loginId||'').trim();
+  const norm=normPhone(raw);
+  // Keep existing local admin/provider demo accounts working.
   const a=S.admins.find(x=>x.phone===norm);
   if(a){
-    if(a.password_hash&&await shaPw(norm,password)===a.password_hash)return{ok:true,role:'admin',user:a};
-    if(a.password===password)return{ok:true,role:'admin',user:a};
+    if(a.password_hash&&await shaPw(norm,password)===a.password_hash)return{ok:true,role:'admin',user:a,token:'local'};
+    if(a.password===password)return{ok:true,role:'admin',user:a,token:'local'};
     return{ok:false,err:'Wrong phone number or password.'};
   }
   const p=S.providers.find(x=>(x.user_phone||x.phone)===norm);
   if(p){
     if(p.status==='suspended')return{ok:false,err:'Your business is suspended. Contact JajiGo.'};
-    if(p.password_hash&&await shaPw(norm,password)===p.password_hash)return{ok:true,role:'provider',user:p,pending:p.status==='pending'};
-    if(p.password===password)return{ok:true,role:'provider',user:p,pending:p.status==='pending'};
+    if(p.password_hash&&await shaPw(norm,password)===p.password_hash)return{ok:true,role:'provider',user:p,pending:p.status==='pending',token:'local'};
+    if(p.password===password)return{ok:true,role:'provider',user:p,pending:p.status==='pending',token:'local'};
     return{ok:false,err:'Wrong phone number or password.'};
   }
+  // Keep the built-in customer demo account working if it has not been migrated.
   const c=S.customers.find(x=>x.phone===norm);
-  if(c){
-    if(c.password_hash&&await shaPw(norm,password)===c.password_hash)return{ok:true,role:'customer',user:c};
-    if(c.password===password)return{ok:true,role:'customer',user:c};
-    return{ok:false,err:'Wrong phone number or password.'};
+  if(c&&raw.indexOf('@')===-1){
+    if(c.password_hash&&await shaPw(norm,password)===c.password_hash)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
+    if(c.password===password)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
   }
-  return{ok:false,err:'Wrong phone number or password.'};
+  const r=await apiAuth('/api/auth/login',{login:raw,password});
+  if(!r.ok)return r;
+  return{ok:true,role:r.user.role||'customer',user:{...r.user,uiLang:r.user.uiLang||S.uiLang||'en'},token:r.token,remoteCustomer:true};
 }
-async function registerCustomer(phone,password,name){
-  const norm=normPhone(phone);
+async function registerCustomer(phone,email,password,name){
+  const norm=normPhone(phone),mail=normEmail(email);
   if(!/^0\d{10}$/.test(norm))return{ok:false,err:'Please enter a valid Nigerian phone number, e.g. 08012345678.'};
-  if(!password||password.length<6)return{ok:false,err:'Password must be at least 6 characters.'};
   if(!name||!name.trim())return{ok:false,err:'Please enter your full name.'};
-  if(window.jajigoBackend?.base?.()){
-    try{
-      const r=await window.jajigoBackend.request('/api/auth/register',{method:'POST',body:JSON.stringify({phone:norm,password,name:name.trim()})});
-      if(r?.token){
-        localStorage.setItem('JAJIGO_MARKETPLACE_TOKEN',r.token);
-        return {ok:true,user:r.user,backend:true,token:r.token};
-      }
-      return {ok:false,err:r?.error||'Registration failed.'};
-    }catch(e){
-      const msg=String(e?.message||e);
-      if(!/Backend URL is not configured|Failed to fetch|NetworkError|fetch|CORS|unavailable|timeout/i.test(msg))
-        return {ok:false,err:msg||'Registration failed.'};
-    }
-  }
-  if(S.customers.find(x=>x.phone===norm))return{ok:false,err:'This phone number already has an account. Please log in.'};
-  const c={id:uid(),phone:norm,full_name:name.trim(),password_hash:await shaPw(norm,password),address:'',uiLang:uiLang};
-  S.customers.push(c);saveState();return{ok:true,user:c};
+  if(!mail)return{ok:false,err:'Please enter your Gmail or email address.'};
+  if(!validEmail(mail))return{ok:false,err:'Please enter a valid email address.'};
+  if(!password||password.length<6)return{ok:false,err:'Password must be at least 6 characters.'};
+  const r=await apiAuth('/api/auth/register',{name:name.trim(),phone:norm,email:mail,password});
+  if(!r.ok)return r;
+  return{ok:true,user:{...r.user,uiLang:S.uiLang||'en'},token:r.token,remoteCustomer:true};
 }
 /* tiny deterministic sha256-ish (browser crypto available normally) */
 async function sha256Async(s){const buf=new TextEncoder().encode(s);const h=await crypto.subtle.digest('SHA-256',buf);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('')}
@@ -690,9 +670,9 @@ function showAuth(initialMsg){
         <button class="chip ${mode==='login'?'on':''}" id="mLogin">${L.login}</button>
         <button class="chip ${mode==='register'?'on':''}" id="mRegister">${L.register}</button>
       </div>
-      <div class="field"><label>${L.phone}</label><input id="aPhone" type="tel" placeholder="08012345678" inputmode="tel"></div>
-      <div class="field"><label>${L.password}</label><input id="aPass" type="password" placeholder="••••••••"></div>
-      ${mode==='register'?`<div class="field"><label>${L.name}</label><input id="aName" type="text"></div>`:''}
+      <div class="field"><label>${mode==='login'?'Email or phone number':L.phone}</label><input id="aPhone" type="text" placeholder="Email or 08012345678" inputmode="email"></div>
+      ${mode==='register'?`<div class="field"><label>${L.name}</label><input id="aName" type="text" autocomplete="name"></div><div class="field"><label>Gmail / Email</label><input id="aEmail" type="email" placeholder="you@gmail.com" inputmode="email" autocomplete="email"></div>`:''}
+      <div class="field"><label>${L.password}</label><input id="aPass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
       <button class="btn" id="aGo">${mode==='register'?L.register:L.login}</button>
       <div class="auth-loading" id="authLoading" aria-live="polite">
         <span class="auth-spinner" aria-hidden="true"></span>
@@ -719,17 +699,16 @@ function showAuth(initialMsg){
       loading.classList.add('show');
       try{
         if(mode==='register'){
-          const r=await registerCustomer(ph,pw,$('#aName').value.trim());
+          const r=await registerCustomer(ph,$('#aEmail').value.trim(),pw,$('#aName').value.trim());
           if(!r.ok){initialMsg=r.err;render();return;}
-          U={role:'customer',user:r.user,backend:!!r.backend,token:r.token||null};
+          U={role:'customer',user:r.user,token:r.token,remoteCustomer:!!r.remoteCustomer};
         } else {
           const r=await login(ph,pw);
           if(!r.ok){initialMsg=r.err;render();return;}
-          U={role:r.role,user:r.user,pending:r.pending||false,backend:!!r.backend,token:r.token||null};
+          U={role:r.role,user:r.user,pending:r.pending||false,token:r.token,remoteCustomer:!!r.remoteCustomer};
           setLang(U.user.uiLang||'en');
         }
-        if(U.token)localStorage.setItem('JAJIGO_MARKETPLACE_TOKEN',U.token);
-        S.current={role:U.role,user:U.user,token:!!U.token,backend:!!U.backend};
+        S.current={role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};
         saveState();
         await new Promise(resolve=>setTimeout(resolve,550));
         await boot();
@@ -749,39 +728,11 @@ window.useDemo=function(sel){
 }
 async function boot(){
   if(!U)return showAuth();
-  /* Backend sessions are authoritative. LocalStorage is only the UI cache. */
-  if(U.backend||U.token||localStorage.getItem('JAJIGO_MARKETPLACE_TOKEN')){
-    const token=U.token||localStorage.getItem('JAJIGO_MARKETPLACE_TOKEN');
-    if(token)localStorage.setItem('JAJIGO_MARKETPLACE_TOKEN',token);
-    try{
-      if(window.jajigoBackend?.base?.()){
-        const b=await window.jajigoBackend.request('/api/bootstrap');
-        if(Array.isArray(b.customers))S.customers=b.customers.map(x=>({...x,phone:x.phone,full_name:x.full_name}));
-        if(Array.isArray(b.providers))S.providers=b.providers;
-        if(Array.isArray(b.orders))S.orders=b.orders;
-        if(Array.isArray(b.products))S.products=b.products;
-        // Backend provider login returns the user row; the UI needs the provider profile.
-        if(U.role==='provider' && Array.isArray(S.providers)){
-          const prof=S.providers.find(x=>normPhone(x.user_phone||x.phone)===normPhone(U.user?.phone));
-          if(prof) U.user={...prof,user_id:prof.user_id||U.user.id,phone:prof.user_phone||U.user.phone};
-        }
-        saveState();
-      }
-    }catch(e){
-      console.warn('JajiGo backend bootstrap unavailable:',e);
-      /* A backend session can still open the app if the API is temporarily down. */
-    }
-    if(U.role==='customer')setLang(U.user.uiLang||'en');
-    if(U.role==='admin')return renderAdmin();
-    if(U.role==='provider')return renderProvider();
-    return renderApp();
-  }
-  // Legacy local/demo session path.
   if(U.role==='customer'){
-    const c=S.customers.find(x=>x.id===U.user.id);
-    if(!c)return showAuth();
-    U.user=c;
-    setLang(c.uiLang||'en');
+    const c=S.customers.find(x=>String(x.id)===String(U.user?.id));
+    if(c&&!U.remoteCustomer)U.user=c;
+    if(!U.user)return showAuth();
+    setLang(U.user.uiLang||'en');
   }
   if(U.role==='admin')return renderAdmin();
   if(U.role==='provider')return renderProvider();
@@ -796,11 +747,7 @@ function recomputeRatings(provider_id){
 }
 
 /* ---------- AUTH screen on load ---------- */
-function logout(){
-  U=null;S.current=null;
-  localStorage.removeItem('JAJIGO_MARKETPLACE_TOKEN');
-  saveState();showAuth();
-}
+function logout(){U=null;S.current=null;saveState();showAuth()}
 $('#btnNotif').onclick=()=>{if(!U)return showAuth();openNotifications()};
 $('#btnLang').onclick=()=>{
   if(!U)return showAuth();
@@ -1190,38 +1137,26 @@ function openCheckout(confirmedFirst){
     $('#cFinal').onclick=()=>placeOrder(mode,address,phone,pm,items,subtotal,df,total);
   };
 }
-async function placeOrder(mode,address,phone,pm,items,subtotal,df,total){
-  if(window.jajigoBackend?.base?.()){
-    const btn=$('#cFinal'); if(btn){btn.disabled=true;btn.textContent='⏳ Placing order…'}
-    try{
-      const r=await window.jajigoBackend.request('/api/orders',{method:'POST',body:JSON.stringify({
-        provider_id:items[0].provider.id,
-        items:items.map(i=>({product_id:i.product.id,quantity:i.quantity})),
-        payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone
-      })});
-      const order=r?.order;
-      if(!order?.id)throw new Error(r?.error||'The server did not return the order.');
-      const prov=items[0].provider;
-      S.orders.unshift({...order,id:String(order.id),customer_id:U.user.id,customer_name:U.user.full_name,provider_id:Number(order.provider_id),business_name:prov.business_name,logo_char:prov.logo_char,logo_color:prov.logo_color,items:Array.isArray(order.items)?order.items:items.map(i=>({product_id:i.product.id,product_name:i.product.name,quantity:i.quantity,unit_price:i.product.price,line_total:i.product.price*i.quantity}))});
-      S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);
-      // Refresh authoritative stock/order data from the backend.
-      try{const b=await window.jajigoBackend.request('/api/bootstrap');if(Array.isArray(b.providers))S.providers=b.providers;if(Array.isArray(b.products))S.products=b.products;if(Array.isArray(b.orders))S.orders=b.orders;}catch(_){ }
-      saveState();updateBadges();closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' '+order.order_code);
-      return;
-    }catch(e){
-      if(btn){btn.disabled=false;btn.textContent='✅ '+L.confirm_order}
-      return toast('❌ '+String(e?.message||e));
-    }
-  }
-  // Legacy demo/local mode only when no marketplace backend is configured.
+function placeOrder(mode,address,phone,pm,items,subtotal,df,total){
   const rate=S.comm_rate||10;
   const comm_on_deliv=S.comm_on_delivery==='1';
   const comm_base=comm_on_deliv?total:subtotal;
   const commission=Math.round(comm_base*rate/100);
   const prov_net=total-commission;
   const code='JG-'+uid().slice(0,8).toUpperCase();
-  const order={id:uid(),order_code:code,customer_id:U.user.id,customer_name:U.user.full_name,customer_phone:phone,provider_id:items[0].provider.id,business_name:items[0].provider.business_name,logo_char:items[0].provider.logo_char,logo_color:items[0].provider.logo_color,items:items.map(i=>({product_id:i.product.id,product_name:i.product.name,quantity:i.quantity,unit_price:i.product.price,line_total:i.product.price*i.quantity})),subtotal,delivery_fee:df,total,rate,commission,provider_net:prov_net,status:'pending',payment_method:pm,payment_status:'pending',delivery_mode:mode,address:mode==='customer_pickup'?null:address,created_at:new Date().toISOString()};
-  S.orders.unshift(order);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);notify('prov',items[0].provider.id,'🧾 New order '+code,`${items[0].provider.business_name} · ${money(total)}`,'new_order',order.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' '+code);
+  const order={
+    id:uid(),order_code:code,customer_id:U.user.id,customer_name:U.user.full_name,customer_phone:phone,
+    provider_id:items[0].provider.id,business_name:items[0].provider.business_name,logo_char:items[0].provider.logo_char,logo_color:items[0].provider.logo_color,
+    items:items.map(i=>({product_id:i.product.id,product_name:i.product.name,quantity:i.quantity,unit_price:i.product.price,line_total:i.product.price*i.quantity})),
+    subtotal,delivery_fee:df,total,rate,commission,provider_net:prov_net,
+    status:'pending',payment_method:pm,payment_status:'pending',delivery_mode:mode,
+    address:mode==='customer_pickup'?null:address,created_at:new Date().toISOString()
+  };
+  S.orders.unshift(order);
+  S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);
+  notify('prov',items[0].provider.id,'🧾 New order '+code,`${items[0].provider.business_name} · ${money(total)}`,'new_order',order.id);
+  saveState();updateBadges();
+  closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' '+code);
 }
 
 function renderOrders(app){
@@ -1658,12 +1593,10 @@ function smartReason(query,p,lang){const q=normalizeSearchText(query), cheap=/ch
 }
 function smartPopularToday(limit=5){const now=new Date();const counts={};(S.orders||[]).forEach(o=>{const d=new Date(o.created_at||0);if((now-d)/86400000<=1&&!['cancelled','rejected'].includes(o.status))(o.items||[]).forEach(i=>counts[i.product_id]=(counts[i.product_id]||0)+Number(i.quantity||0));});return (S.products||[]).filter(p=>p&&p.is_available&&providerById(p.provider_id)?.status==='approved').map(p=>({...p,_todayCount:counts[p.id]||0})).sort((a,b)=>b._todayCount-a._todayCount||(b.pop||0)-(a.pop||0)).slice(0,limit)}
 function openSmartRecommendations(query=''){
-  // Recommendation chips now enter the same live-AI pipeline as normal questions.
-  // If the Render backend is unavailable, sendAI's existing smart local fallback is used.
-  if(!U)return showAuth();
-  openAI();
-  const input=$('#aiIn');
-  if(input){input.value=query;setTimeout(()=>sendAI(),0);}
+  const lang=detectLang(query),recs=smartProductRecommendations(query);
+  const cards=recs.map(p=>'<div class="smartrec"><div class="row"><div style="display:flex;gap:9px;align-items:center"><span class="trackdot">'+esc(p.icon||'🍽️')+'</span><div><div class="pname">'+esc(p.name)+'</div><div class="mut">'+esc(providerById(p.provider_id)?.business_name||'')+' · '+money(p.price)+'</div></div></div><span class="pill">'+esc(smartReason(query,p,lang))+'</span></div><div class="reason">'+esc(p.desc||'')+'</div><button class="btn sm" style="margin-top:8px" onclick="addToCart('+p.id+',1);toast(\'✅ Added to cart\')">＋ Add</button></div>').join('');
+  const empty='<div class="empty"><div class="ei">🍽️</div>No matching recommendation yet.</div>';
+  openSheet('<div class="h1">✨ '+(lang==='ha'?'Shawarar JajiGo':lang==='pcm'?'JajiGo recommendation':'JajiGo recommendation')+'</div><div class="mut">Based on your request, available JajiGo products, time of day and recent JajiGo orders.</div>'+(cards||empty)+'<button class="btn sec" style="margin-top:6px" onclick="openAI()">✨ Ask another way</button>');
 }
 window.openSmartRecommendations=openSmartRecommendations;
 function renderTodayPicks(){const picks=smartPopularToday(5);return `<div class="card" style="margin-top:10px"><div class="row"><div><div class="h1" style="font-size:16px">🔥 What people are buying today</div><div class="mut">Live from JajiGo orders today</div></div><span class="livebadge"><i></i> LIVE</span></div>${picks.length?picks.map((p,i)=>`<div class="near-place"><div class="row"><div style="display:flex;gap:8px;align-items:center"><span style="font-size:20px">${esc(p.icon||'🍽️')}</span><div><b>${i+1}. ${esc(p.name)}</b><div class="npmeta">${esc(providerById(p.provider_id)?.business_name||'')} · ${p._todayCount||0} sold today</div></div></div><button class="btn sm sec" onclick="addToCart(${p.id},1)">＋ Add</button></div></div>`).join(''):'<div class="mut" style="margin-top:8px">Not enough orders today to show a trend yet.</div>'}</div>`}
@@ -2047,17 +1980,16 @@ function renderProvider(){
     default:return paintDashboard();
   }
 }
-window.provSetStatus=async function(oid,next){
+window.provSetStatus=function(oid,next){
   if(!U||U.role!=='provider')return toast('Provider access required.');
-  const o=S.orders.find(x=>String(x.id)===String(oid));if(!o||String(o.provider_id)!==String(U.user.id))return toast('Order not found.');
+  const o=S.orders.find(x=>x.id===oid);if(!o||o.provider_id!==U.user.id)return toast('Order not found.');
   const ok={pending:['accepted','rejected','cancelled'],accepted:['preparing','cancelled'],preparing:['ready','cancelled'],ready:['on_the_way','delivered'],on_the_way:['delivered'],delivered:['completed']};
   if(!(ok[o.status]||[]).includes(next))return toast('Cannot change from '+o.status+' to '+next);
-  if(window.jajigoBackend?.base?.()){
-    try{const r=await window.jajigoBackend.request('/api/orders/'+encodeURIComponent(oid)+'/status',{method:'PATCH',body:JSON.stringify({status:next})});if(!r?.order)throw new Error(r?.error||'Could not update order.');o.status=r.order.status;o.updated_at=r.order.updated_at;saveState();toast('✅ Updated');return renderProvider();}catch(e){return toast('❌ '+String(e?.message||e));}
-  }
-  o.status=next;notify('cust',o.customer_id,'🔄 '+o.order_code+' · '+next,`Your order is now: ${next}`,'',oid);saveState();toast('✅ Updated');renderProvider();
+  o.status=next;
+  notify('cust',o.customer_id,'🔄 '+o.order_code+' · '+next,`Your order is now: ${next}`,'',oid);
+  saveState();toast('✅ Updated');renderProvider();
 }
-window.provToggle=async function(pid,av){if(!U||U.role!=='provider')return;const p=S.products.find(x=>String(x.id)===String(pid));if(!p||String(p.provider_id)!==String(U.user.id))return;if(window.jajigoBackend?.base?.()){try{const r=await window.jajigoBackend.request('/api/products/'+encodeURIComponent(pid),{method:'PATCH',body:JSON.stringify({is_available:!!av})});if(!r?.product)throw new Error(r?.error||'Could not update product.');Object.assign(p,r.product);saveState();toast('✅ Product updated');return renderProvider()}catch(e){return toast('❌ '+String(e?.message||e))}}p.is_available=av;saveState();renderProvider()}
+window.provToggle=function(pid,av){if(!U||U.role!=='provider')return;const p=S.products.find(x=>x.id===pid);if(!p||p.provider_id!==U.user.id)return;p.is_available=av;saveState();renderProvider()}
 window.provAddProduct=function(){
   if(!U||U.role!=='provider')return toast('Provider access required.');
   const provider=U.user;
@@ -2088,15 +2020,9 @@ window.provAddProduct=function(){
       if(file.size>8*1024*1024)return toast('Photo is too large. Choose an image under 8MB.');
       try{photo=await compressProviderPhoto(file)}catch(e){return toast('Could not process that photo. Try another one.')}
     }
-    if(window.jajigoBackend?.base?.()){
-      try{
-        const r=await window.jajigoBackend.request('/api/products',{method:'POST',body:JSON.stringify({category_id:provider.category_id,type:serviceCategory?'service':'product',name,description:desc,price,icon,photo,is_available:true})});
-        if(!r?.product)throw new Error(r?.error||'Could not add product.');
-        S.products.unshift(r.product);saveState();closeSheet();toast('✅ '+(serviceCategory?'Service':'Product')+' added successfully');return renderProvider();
-      }catch(e){return toast('❌ '+String(e?.message||e))}
-    }
     const product={id:'p-'+uid(),provider_id:provider.id,category_id:provider.category_id,type:serviceCategory?'service':'product',name,desc,price,is_available:1,icon,pop:0,cat_slug:cat?.slug||'other',business_type:provider.business_type_custom||cat?.name||'Other',photo,created_by_provider:true,created_at:new Date().toISOString()};
-    S.products.push(product);saveState();closeSheet();toast('✅ '+(serviceCategory?'Service':'Product')+' added successfully');renderProvider();
+    S.products.push(product);
+    saveState();closeSheet();toast('✅ '+(serviceCategory?'Service':'Product')+' added successfully');renderProvider();
   };
 };
 function compressProviderPhoto(file){
@@ -2131,17 +2057,13 @@ window.provEditPrice=function(pid){
     const price=Number($('#np').value);if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
     p.name=$('#nn').value.trim()||p.name;p.desc=$('#nd').value.trim();p.price=price;p.icon=$('#ni').value.trim()||'📦';p.is_available=Number($('#nav').value)?1:0;
     const file=$('#nphoto').files?.[0];if(file){if(!file.type.startsWith('image/'))return toast('Please choose an image file.');if(file.size>8*1024*1024)return toast('Photo is too large.');try{p.photo=await compressProviderPhoto(file)}catch(e){return toast('Could not process that photo.')}}
-    if(window.jajigoBackend?.base?.()){
-      try{const r=await window.jajigoBackend.request('/api/products/'+encodeURIComponent(pid),{method:'PATCH',body:JSON.stringify({name:p.name,description:p.desc||'',price:p.price,icon:p.icon||'📦',is_available:!!p.is_available,photo:p.photo||''})});if(!r?.product)throw new Error(r?.error||'Could not update product.');Object.assign(p,r.product);saveState();closeSheet();toast('✅ Product updated');return renderProvider();}catch(e){return toast('❌ '+String(e?.message||e))}
-    }
     saveState();closeSheet();toast('✅ Product updated');renderProvider();
   };
 }
-window.provDeleteProduct=async function(pid){
+window.provDeleteProduct=function(pid){
   if(!U||U.role!=='provider')return;
-  const p=S.products.find(x=>String(x.id)===String(pid));if(!p||String(p.provider_id)!==String(U.user.id))return;
+  const p=S.products.find(x=>x.id===pid);if(!p||p.provider_id!==U.user.id)return;
   if(!confirm('Delete "'+p.name+'"? This cannot be undone.'))return;
-  if(window.jajigoBackend?.base?.()){try{await window.jajigoBackend.request('/api/products/'+encodeURIComponent(pid),{method:'DELETE'});S.products=S.products.filter(x=>String(x.id)!==String(pid));saveState();toast('🗑 Product deleted');return renderProvider();}catch(e){return toast('❌ '+String(e?.message||e))}}
   S.products=S.products.filter(x=>x.id!==pid);saveState();toast('🗑 Product deleted');renderProvider();
 }
 function paintProvChat(customer_id){
@@ -2544,10 +2466,11 @@ async function shaPw(norm,pw){
   if(S.current&&S.current.token){
     // Restore the complete session object. The previous code restored only the user
     // and lost the role, which could break automatic session resume after reload.
-    U={role:S.current.role,user:S.current.user,token:true};
+    U={role:S.current.role,user:S.current.user,token:S.current.token,remoteCustomer:!!S.current.remoteCustomer};
     if(!U.role||!U.user)U=null;
-    // ensure demo customer lookup still works (password_hash stored already)
-    if(U&&U.role==='customer'){const cc=S.customers.find(x=>x.id===U.user.id);if(cc)U.user=cc;setLang(cc?.uiLang||'en')}
+    // Keep local demo customers working while allowing real API customers to restore.
+    if(U&&U.role==='customer'&&!U.remoteCustomer){const cc=S.customers.find(x=>String(x.id)===String(U.user.id));if(cc)U.user=cc;}
+    if(U&&U.role==='customer')setLang(U.user.uiLang||'en');
     if(U)boot();else showAuth();
   } else if(S.default_login){
     window.useDemoImpl(S.default_login);
@@ -2558,7 +2481,7 @@ async function shaPw(norm,pw){
 
 /* ---------- Save current for resume ---------- */
 function _saveSession(U){
-  S.current={role:U.role,user:U.user,token:'local'};
+  S.current={role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};
   saveState();
 }
 const origBoot=boot;
@@ -2686,84 +2609,14 @@ window.jgToggleCoupon=function(id){const c=(S.coupons||[]).find(x=>x.id===id);if
     const box=$('#aiBox'); if(box)box.parentNode.insertBefore(controls,box.nextSibling);
     const input=$('#aiIn');if(input&&mem.preferences?.budget)input.placeholder='Remembered budget: ₦'+Number(mem.preferences.budget).toLocaleString('en-NG')+' · '+L.ai_ph;
   };
-  /* ---------- Live voice search: browser speech -> same live Gemini pipeline ---------- */
-  let jgVoiceRecognition=null;
-  let jgVoiceListening=false;
   window.aiVoiceSearch=function(){
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    const input=$('#aiIn');
-    if(!SR){
-      toast(uiLang==='ha'?'Ba a tallafa wa wannan browser da neman murya ba.':'Voice search is not supported here. Try Chrome on Android.');
-      return;
-    }
-    if(!input){toast('Open the JajiGo AI chat first.');return;}
-    if(jgVoiceListening&&jgVoiceRecognition){
-      try{jgVoiceRecognition.stop()}catch(e){}
-      return;
-    }
-    const r=new SR();
-    jgVoiceRecognition=r;
-    jgVoiceListening=true;
-    r.lang=uiLang==='ha'?'ha-NG':'en-NG';
-    // Nigerian Pidgin is best captured with Nigerian English, then sent to Gemini
-    // together with the selected UI language so the live AI can answer naturally.
-    if(uiLang==='pcm')r.lang='en-NG';
-    r.interimResults=true;
-    r.continuous=false;
-    r.maxAlternatives=3;
-    let finalText='';
-    const setVoiceUI=(on)=>{
-      const cards=document.querySelectorAll('.ai-adv-card');
-      cards.forEach(c=>{
-        if(c.textContent.includes('Voice Search')){
-          c.classList.toggle('jg-voice-listening',!!on);
-          const b=c.querySelector('b');
-          if(b)b.textContent=on?'🛑 Stop Voice Search':'🎤 Voice Search';
-          const sp=c.querySelector('span');
-          if(sp)sp.textContent=on?(uiLang==='ha'?'Ina sauraro…':uiLang==='pcm'?'Talk now…':'Listening…'):(uiLang==='ha'?'Yi magana da Hausa ko Turanci':'Speak English, Pidgin or Hausa');
-        }
-      });
-    };
-    setVoiceUI(true);
-    toast(uiLang==='ha'?'🎤 Ina sauraro…':uiLang==='pcm'?'🎤 Talk now…':'🎤 Listening…');
-    r.onstart=()=>{jgVoiceListening=true;setVoiceUI(true)};
-    r.onresult=e=>{
-      let interim='';
-      for(let i=e.resultIndex;i<e.results.length;i++){
-        const t=e.results[i]?.[0]?.transcript||'';
-        if(e.results[i].isFinal)finalText+=(finalText?' ':'')+t.trim();
-        else interim+=(interim?' ':'')+t.trim();
-      }
-      const shown=(finalText||interim).trim();
-      if(shown)input.value=shown;
-    };
-    r.onerror=e=>{
-      const code=e?.error||'unknown';
-      if(code==='aborted')return;
-      const msg=code==='not-allowed'||code==='service-not-allowed'
-        ?(uiLang==='ha'?'An hana izinin makirufo. Ka ba browser izinin microphone sannan ka sake gwadawa.':'Microphone permission was blocked. Allow microphone access and try again.')
-        :code==='no-speech'
-        ?(uiLang==='ha'?'Ban ji muryarka ba. Ka sake magana.':'I did not hear anything. Please try again.')
-        :'Voice search could not start. Please try again.';
-      toast(msg);
-    };
-    r.onend=()=>{
-      jgVoiceListening=false;
-      if(jgVoiceRecognition===r)jgVoiceRecognition=null;
-      setVoiceUI(false);
-      const text=input.value.trim();
-      if(text){
-        // IMPORTANT: this is the normal JajiGo sendAI() path, so voice uses the
-        // same Render -> Gemini live connection, retries, status and local fallback.
-        toast(uiLang==='ha'?'✨ Ana aika tambayarka zuwa JajiGo AI…':'✨ Sending to JajiGo live AI…');
-        setTimeout(()=>window.sendAI(),60);
-      }
-    };
-    try{r.start()}catch(err){
-      jgVoiceListening=false;jgVoiceRecognition=null;setVoiceUI(false);
-      console.error('JajiGo voice start error:',err);
-      toast('Could not start the microphone. Please try again.');
-    }
+    if(!SR){toast('Voice search is not supported by this browser.');return;}
+    const r=new SR();r.lang=uiLang==='ha'?'ha-NG':'en-NG';r.interimResults=false;r.maxAlternatives=1;
+    toast(uiLang==='ha'?'🎤 Ina sauraro…':'🎤 Listening…');
+    r.onresult=e=>{const i=$('#aiIn');if(i){i.value=e.results[0][0].transcript;sendAI();}};
+    r.onerror=()=>toast('Voice search failed. Please try again.');
+    r.start();
   };
   const oldSendAI=sendAI;
   sendAI=async function(){
@@ -2822,17 +2675,94 @@ window.jgToggleCoupon=function(id){const c=(S.coupons||[]).find(x=>x.id===id);if
 .ai-api-status{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800;background:#f1f5f3;color:#647067}.ai-api-status i{width:7px;height:7px;border-radius:50%;background:#94a3b8}.ai-api-status.online i{background:#16a34a}.ai-api-status.error i{background:#e2574c}.ai-api-note{font-size:11px;color:var(--mut);margin:7px 0 2px}
 </style>
 <script id="jajigo-secure-ai-v37-script">
-/* v37 compatibility layer: the live Gemini bridge below owns all AI requests.
-   Keeping this object avoids breaking any older JajiGo code that reads it. */
-const AI_API_URL="https://jajigo-gemini-ai.onrender.com";
-window.JAJIGO_AI_CONFIG={
+/* =============================================================
+   JAJIGO v37 SECURE AI BRIDGE
+   IMPORTANT: No Anthropic/Claude API key is stored in this HTML.
+   Browser -> your secure backend -> Anthropic Messages API
+   ============================================================= */
+const JAJIGO_AI_CONFIG={
   enabled:true,
-  endpoint:AI_API_URL+'/api/ai/chat',
-  timeoutMs:45000,
+  endpoint:'/api/ai/chat',
+  timeoutMs:25000,
   fallbackToLocal:true,
   sendMarketplaceContext:true,
-  maxHistory:10
+  maxHistory:8
 };
+let jajigoRealAIStatus='local';
+
+function jgAIStatusLabel(){
+  const x=jajigoRealAIStatus;
+  return x==='online'?'🟢 Real AI connected':x==='connecting'?'🟡 Connecting AI…':x==='error'?'🔴 AI unavailable · using smart local help':'🟣 Smart local AI';
+}
+function jgAIContext(){
+  const safeUser=U?{role:U.role,id:U.user?.id||null,business_name:U.user?.business_name||null}:null;
+  const products=(S?.products||[]).filter(p=>p.is_available!==0).slice(0,120).map(p=>({id:p.id,name:p.name,description:p.desc,price:p.price,category:p.cat_slug,provider_id:p.provider_id}));
+  const providers=(S?.providers||[]).filter(p=>p.status==='approved').slice(0,60).map(p=>({id:p.id,name:p.business_name,category_id:p.category_id,address:p.address}));
+  const demands=(S?.ai_demands||[]).slice(0,30).map(d=>({query:d.query,count:d.count||1,status:d.status||'open'}));
+  return {app:'JajiGo Marketplace',language:uiLang,user:safeUser,location:$('#locText')?.textContent||'Jaji, Kaduna',products,providers,missingProductDemands:demands};
+}
+function jgAIHistory(){
+  const m=getAIMemory();
+  return (m.messages||[]).slice(-JAJIGO_AI_CONFIG.maxHistory).map((text,i)=>({role:'user',content:String(text)}));
+}
+function jgAIAppend(text,kind='ai'){
+  const box=$('#aiBox');if(!box)return;
+  box.insertAdjacentHTML('beforeend',`<div class="msgrow ${kind==='user'?'me':''}"><div class="bub">${esc(String(text)).replace(/\n/g,'<br>')}</div></div>`);
+  box.scrollTop=box.scrollHeight;
+}
+function jgAISetStatus(){
+  const el=$('#jgAIAPIStatus');if(el){el.className='ai-api-status '+(jajigoRealAIStatus==='online'?'online':jajigoRealAIStatus==='error'?'error':'');el.innerHTML='<i></i>'+jgAIStatusLabel();}
+}
+async function jgCallSecureAI(message){
+  if(!JAJIGO_AI_CONFIG.enabled)throw new Error('disabled');
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),JAJIGO_AI_CONFIG.timeoutMs);
+  try{
+    const res=await fetch(JAJIGO_AI_CONFIG.endpoint,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',signal:controller.signal,body:JSON.stringify({message,history:jgAIHistory(),context:JAJIGO_AI_CONFIG.sendMarketplaceContext?jgAIContext():undefined})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data?.error?.message||data?.error||('HTTP '+res.status));
+    if(!data.reply)throw new Error('Empty AI reply');
+    return data;
+  } finally {clearTimeout(timer)}
+}
+(function(){
+  const previousOpenAI=window.openAI;
+  if(typeof previousOpenAI==='function'){
+    window.openAI=function(){
+      previousOpenAI();
+      setTimeout(()=>{const body=$('#sheetBody');if(body&&!$('#jgAIAPIStatus')){const st=document.createElement('div');st.id='jgAIAPIStatus';st.className='ai-api-status';st.innerHTML='<i></i>'+jgAIStatusLabel();body.insertBefore(st,body.firstChild);}},0);
+    };
+  }
+  const localSend=window.sendAI;
+  window.sendAI=async function(){
+    const input=$('#aiIn');const message=input?.value?.trim();
+    if(!message)return;
+    // Keep marketplace workflow local for actions/orders; real AI handles natural conversation first.
+    const actionIntent=/\b(add to cart|checkout|place order|cancel order|approve provider|delete product)\b/i.test(message);
+    if(actionIntent)return localSend();
+    const originalValue=message;
+    jgAIAppend(originalValue,'user');input.value='';
+    const box=$('#aiBox');box?.insertAdjacentHTML('beforeend','<div id="jgRealAISpin" class="spin"></div>');
+    jajigoRealAIStatus='connecting';jgAISetStatus();
+    try{
+      const result=await jgCallSecureAI(originalValue);
+      $('#jgRealAISpin')?.remove();
+      jajigoRealAIStatus='online';jgAISetStatus();
+      jgAIAppend(result.reply);
+      const mem=getAIMemory();mem.messages=(mem.messages||[]).concat([originalValue,result.reply]).slice(-16);mem.lastQuery=originalValue;saveAIMemory(mem);
+      if(result.actions?.missingProduct){try{window.aiCreateDemand?.(result.actions.missingProduct)}catch(e){}}
+      if(result.actions?.supportTicket){try{window.aiCreateTicket?.(result.actions.supportTicket)}catch(e){}}
+    }catch(err){
+      $('#jgRealAISpin')?.remove();
+      jajigoRealAIStatus='error';jgAISetStatus();
+      if(JAJIGO_AI_CONFIG.fallbackToLocal){
+        input.value=originalValue;
+        toast('Real AI is unavailable. Using JajiGo smart help.');
+        return localSend();
+      }
+      jgAIAppend('Sorry, JajiGo AI is temporarily unavailable. Please try again.');
+    }
+  };
+})();
 </script>
 
 
@@ -2893,20 +2823,16 @@ window.JAJIGO_AI_CONFIG={
 </style>
 <script id="jajigo-gemini-v40-script">
 /* =============================================================
-   JAJIGO LIVE GEMINI CLIENT
-   Browser -> Render backend -> Gemini API
-   No Gemini API key is stored in this HTML file.
+   JAJIGO v41 - GEMINI SECURE AI CLIENT
+   SECURITY: No Gemini API key is stored in this HTML file.
+   Browser -> JajiGo secure backend -> Gemini API
    ============================================================= */
-
-// Keep the requested backend URL explicit. Do not depend on localStorage or
-// the page's own origin for the live AI request.
 window.JAJIGO_GEMINI_CONFIG={
-  baseUrl:AI_API_URL,
+  // After deployment set this to your Render URL, e.g. https://jajigo-gemini-ai.onrender.com
+  baseUrl: localStorage.getItem('JAJIGO_AI_BACKEND_URL') || '',
   endpoint:'/api/ai/chat',
   healthEndpoint:'/api/ai/health',
-  timeoutMs:45000,
-  retryAttempts:3,
-  retryDelaysMs:[1200,2500],
+  timeoutMs:30000,
   maxHistory:10,
   fallbackToLocal:true,
   sendMarketplaceContext:true
@@ -2921,8 +2847,7 @@ function jgV40StatusText(){
   return '🟣 Smart local AI';
 }
 function jgV40UpdateStatus(){
-  const el=$('#jgGeminiStatus');
-  if(!el)return;
+  const el=$('#jgGeminiStatus');if(!el)return;
   const s=window.jajigoGeminiStatus;
   el.className='jg-gemini-status '+s;
   el.innerHTML='<i></i>'+jgV40StatusText();
@@ -2931,7 +2856,13 @@ function jgV40SafeContext(){
   const products=(S?.products||[]).filter(p=>p&&p.is_available!==0).slice(0,100).map(p=>({id:p.id,name:p.name,description:p.desc||p.description||'',price:p.price,category:p.cat_slug||p.category||'',provider_id:p.provider_id}));
   const providers=(S?.providers||[]).filter(p=>p&&p.status==='approved').slice(0,50).map(p=>({id:p.id,name:p.business_name||p.name||'Provider',category:p.category_id||p.category||'',location:p.address||''}));
   const demands=(S?.ai_demands||[]).filter(d=>d.status!=='resolved').slice(0,20).map(d=>({query:d.query,count:d.count||1}));
-  return {app:'JajiGo Marketplace',language:typeof uiLang!=='undefined'?uiLang:'en',userRole:U?.role||'guest',location:$('#locText')?.textContent||'Jaji, Kaduna',products,providers,missingProductDemands:demands};
+  return {
+    app:'JajiGo Marketplace',
+    language:typeof uiLang!=='undefined'?uiLang:'en',
+    userRole:U?.role||'guest',
+    location:$('#locText')?.textContent||'Jaji, Kaduna',
+    products,providers,missingProductDemands:demands
+  };
 }
 function jgV40History(){
   try{
@@ -2949,89 +2880,41 @@ function jgV40History(){
 function jgV40Append(text,kind){
   const box=$('#aiBox');if(!box)return;
   const row=document.createElement('div');row.className='msgrow '+(kind==='user'?'me':'');
-  const bub=document.createElement('div');bub.className='bub';
-  bub.textContent=String(text||'');row.appendChild(bub);box.appendChild(row);box.scrollTop=box.scrollHeight;
+  const bub=document.createElement('div');bub.className='bub';bub.textContent=String(text||'');row.appendChild(bub);box.appendChild(row);box.scrollTop=box.scrollHeight;
 }
 function jgV40ApiUrl(path){
-  const base=String(window.JAJIGO_GEMINI_CONFIG.baseUrl||AI_API_URL).replace(/\/$/,'');
-  return /^https?:\/\//i.test(path)?path:base+('/'+String(path||'').replace(/^\//,''));
+  const base=String(window.JAJIGO_GEMINI_CONFIG.baseUrl||'').replace(/\/$/,'');
+  return base ? base+path : path;
 }
 window.setJajiGoAIBackend=function(url){
-  // Kept for compatibility. The production default remains the fixed Render URL.
   const clean=String(url||'').trim().replace(/\/$/,'');
   if(clean){localStorage.setItem('JAJIGO_AI_BACKEND_URL',clean);window.JAJIGO_GEMINI_CONFIG.baseUrl=clean;}
-  else{localStorage.removeItem('JAJIGO_AI_BACKEND_URL');window.JAJIGO_GEMINI_CONFIG.baseUrl=AI_API_URL;}
+  else{localStorage.removeItem('JAJIGO_AI_BACKEND_URL');window.JAJIGO_GEMINI_CONFIG.baseUrl='';}
   return window.JAJIGO_GEMINI_CONFIG.baseUrl;
 };
-
-function jgV40ParseResponseText(text,res){
-  const raw=String(text||'').trim();
-  let data=null;
-  if(raw){try{data=JSON.parse(raw)}catch(e){data=null}}
-  if(!res.ok){
-    const detail=data?.error?.message||data?.error||data?.message||(!/^<!doctype|^<html/i.test(raw)&&raw.slice(0,300))||('HTTP '+res.status);
-    const err=new Error(String(detail));err.status=res.status;err.retryable=res.status>=500||res.status===408||res.status===429;throw err;
-  }
-  if(data){
-    const reply=data.reply??data.response??data.text??data.message??data.output?.text??data.data?.reply??data.result?.reply;
-    if(typeof reply==='string'&&reply.trim())return {...data,reply:reply.trim()};
-  }
-  // Accept plain-text 2xx responses, but never mistake an HTML page for an AI reply.
-  if(raw&&!/^<!doctype|^<html|<body[\s>]/i.test(raw))return {reply:raw};
-  const err=new Error('Backend returned no usable AI reply');err.retryable=false;throw err;
-}
-
-async function jgV40RequestOnce(message){
+async function jgV40Call(message){
   const cfg=window.JAJIGO_GEMINI_CONFIG;
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),cfg.timeoutMs);
   try{
     const payload={message:String(message),history:jgV40History()};
     if(cfg.sendMarketplaceContext)payload.context=jgV40SafeContext();
-    const res=await fetch(jgV40ApiUrl(cfg.endpoint),{
-      method:'POST',mode:'cors',credentials:'omit',cache:'no-store',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      signal:controller.signal,body:JSON.stringify(payload)
-    });
-    return jgV40ParseResponseText(await res.text(),res);
-  }catch(err){
-    if(err?.name==='AbortError'){const e=new Error('AI request timed out while waiting for the Render backend.');e.retryable=true;throw e;}
-    throw err;
+    const res=await fetch(jgV40ApiUrl(cfg.endpoint),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',signal:controller.signal,body:JSON.stringify(payload)});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data?.error||data?.message||('HTTP '+res.status));
+    if(!data||!data.reply)throw new Error('Empty AI reply');
+    return data;
   }finally{clearTimeout(timer)}
 }
-async function jgV40Call(message){
-  const cfg=window.JAJIGO_GEMINI_CONFIG;
-  let lastErr=null;
-  for(let attempt=0;attempt<cfg.retryAttempts;attempt++){
-    try{return await jgV40RequestOnce(message)}catch(err){
-      lastErr=err;
-      const retryable=err?.retryable!==false;
-      if(!retryable||attempt===cfg.retryAttempts-1)break;
-      window.jajigoGeminiStatus='connecting';jgV40UpdateStatus();
-      await new Promise(r=>setTimeout(r,cfg.retryDelaysMs[attempt]||2000));
-    }
-  }
-  throw lastErr||new Error('AI request failed');
-}
-
 async function jgV40CheckHealth(){
   try{
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),12000);
-    try{
-      const res=await fetch(jgV40ApiUrl(window.JAJIGO_GEMINI_CONFIG.healthEndpoint),{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',headers:{'Accept':'application/json'},signal:controller.signal});
-      const text=await res.text();
-      if(!res.ok)throw new Error('HTTP '+res.status);
-      let data={};try{data=text?JSON.parse(text):{}}catch(e){}
-      if(data.ready===false)window.jajigoGeminiStatus='local';else window.jajigoGeminiStatus='online';
-    }finally{clearTimeout(timer)}
-  }catch(e){
-    // Health is informational only. A cold-start/health failure must NOT disable chat.
-    if(window.jajigoGeminiStatus!=='online')window.jajigoGeminiStatus='local';
-  }
+    const res=await fetch(jgV40ApiUrl(window.JAJIGO_GEMINI_CONFIG.healthEndpoint),{credentials:'same-origin'});
+    if(!res.ok)throw new Error('offline');
+    const data=await res.json();
+    window.jajigoGeminiStatus=data.ready?'online':'local';
+  }catch(e){window.jajigoGeminiStatus='local'}
   jgV40UpdateStatus();
 }
-
 (function(){
   const previousOpenAI=window.openAI;
   if(typeof previousOpenAI==='function'){
@@ -3041,9 +2924,7 @@ async function jgV40CheckHealth(){
         const body=$('#sheetBody');if(!body)return;
         let st=$('#jgGeminiStatus');
         if(!st){st=document.createElement('div');st.id='jgGeminiStatus';st.className='jg-gemini-status';body.insertBefore(st,body.firstChild);}
-        jgV40UpdateStatus();
-        // Do not gate chat on this check; it is only a status hint.
-        jgV40CheckHealth();
+        jgV40UpdateStatus();jgV40CheckHealth();
       },0);
       return r;
     };
@@ -3064,20 +2945,14 @@ async function jgV40CheckHealth(){
       spin.remove();window.jajigoGeminiStatus='online';jgV40UpdateStatus();
       jgV40Append(result.reply,'ai');
       try{
-        const mem=getAIMemory?.()||{};
-        mem.messages=(Array.isArray(mem.messages)?mem.messages:[]).concat([{role:'user',text:message},{role:'model',text:result.reply}]).slice(-20);
-        mem.lastQuery=message;saveAIMemory?.(mem);
+        const mem=getAIMemory?.()||{};mem.messages=(Array.isArray(mem.messages)?mem.messages:[]).concat([{role:'user',text:message},{role:'model',text:result.reply}]).slice(-20);mem.lastQuery=message;saveAIMemory?.(mem);
       }catch(e){}
       if(result.actions?.missingProduct)window.aiCreateDemand?.(result.actions.missingProduct);
       if(result.actions?.supportTicket)window.aiCreateTicket?.(result.actions.supportTicket);
     }catch(err){
-      spin.remove();
-      console.error('JajiGo live AI request failed:',err);
-      window.jajigoGeminiStatus='error';jgV40UpdateStatus();
+      spin.remove();window.jajigoGeminiStatus='error';jgV40UpdateStatus();
       if(window.JAJIGO_GEMINI_CONFIG.fallbackToLocal&&typeof localSend==='function'){
-        input.value=message;
-        toast('Live AI could not be reached. Using JajiGo smart help.');
-        return localSend();
+        input.value=message;toast('Secure Gemini AI is unavailable. Using JajiGo smart help.');return localSend();
       }
       jgV40Append('Sorry, JajiGo AI is temporarily unavailable. Please try again.','ai');
     }
@@ -3085,18 +2960,5 @@ async function jgV40CheckHealth(){
 })();
 </script>
 
-<script id="jajigo-phase1-backend-bridge">
-/* JajiGo Phase 1 backend bridge. Safe/non-destructive: existing UI keeps working
-   locally until the migration layer is explicitly enabled. */
-window.JAJIGO_MARKETPLACE_API='https://jajigo-marketplace.onrender.com';
-window.jajigoBackend={
-  base:()=>String(window.JAJIGO_MARKETPLACE_API||'').replace(/\/$/,''),
-  set:(url)=>{const u=String(url||'').trim().replace(/\/$/,'');window.JAJIGO_MARKETPLACE_API=u;if(u)localStorage.setItem('JAJIGO_MARKETPLACE_API',u);else localStorage.removeItem('JAJIGO_MARKETPLACE_API');return u},
-  token:()=>localStorage.getItem('JAJIGO_MARKETPLACE_TOKEN')||'',
-  async health(){const b=this.base();if(!b)throw new Error('Backend URL is not configured');const r=await fetch(b+'/api/health',{cache:'no-store'});const d=await r.json().catch(()=>({}));if(!r.ok||!d.ok)throw new Error(d.error||'Backend unavailable');return d},
-  async request(path,options={}){const b=this.base();if(!b)throw new Error('Backend URL is not configured');const h={'Content-Type':'application/json',...(options.headers||{})};const t=this.token();if(t)h.Authorization='Bearer '+t;const r=await fetch(b+path,{...options,headers:h,cache:'no-store'});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.error||('HTTP '+r.status));return d}
-};
-window.setJajiGoMarketplaceAPI=window.jajigoBackend.set;
-</script>
 </body>
 </html>
