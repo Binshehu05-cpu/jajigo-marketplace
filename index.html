@@ -276,7 +276,6 @@ nav.tabs{position:fixed!important}
   #jgFloatingAI{bottom:calc(82px + env(safe-area-inset-bottom))!important}
 }
 </style>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div class="jg-ambient-icons" aria-hidden="true">
@@ -576,54 +575,37 @@ function categoryById(id){return S.categories.find(c=>c.id===id)}
 function categoryBySlug(slug){return S.categories.find(c=>c.slug===slug)||null}
 
 /* ---------- Sessions ---------- */
-const JAJIGO_API='https://jajigo-marketplace.onrender.com';
-function normEmail(v){return String(v||'').trim().toLowerCase()}
-function validEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
-async function apiAuth(path,body){
-  try{
-    const res=await fetch(JAJIGO_API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const data=await res.json().catch(()=>({ok:false,error:'Server returned an invalid response.'}));
-    if(!res.ok||!data.ok)return{ok:false,err:data.error||'Request failed. Please try again.'};
-    return{ok:true,...data};
-  }catch(e){console.error('JajiGo API error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
-}
-async function login(loginId,password){
-  const raw=String(loginId||'').trim();
-  const norm=normPhone(raw);
-  // Keep existing local admin/provider demo accounts working.
+async function login(phone,password){
+  const norm=normPhone(phone);
   const a=S.admins.find(x=>x.phone===norm);
   if(a){
-    if(a.password_hash&&await shaPw(norm,password)===a.password_hash)return{ok:true,role:'admin',user:a,token:'local'};
-    if(a.password===password)return{ok:true,role:'admin',user:a,token:'local'};
+    if(a.password_hash&&await shaPw(norm,password)===a.password_hash)return{ok:true,role:'admin',user:a};
+    if(a.password===password)return{ok:true,role:'admin',user:a};
     return{ok:false,err:'Wrong phone number or password.'};
   }
   const p=S.providers.find(x=>(x.user_phone||x.phone)===norm);
   if(p){
     if(p.status==='suspended')return{ok:false,err:'Your business is suspended. Contact JajiGo.'};
-    if(p.password_hash&&await shaPw(norm,password)===p.password_hash)return{ok:true,role:'provider',user:p,pending:p.status==='pending',token:'local'};
-    if(p.password===password)return{ok:true,role:'provider',user:p,pending:p.status==='pending',token:'local'};
+    if(p.password_hash&&await shaPw(norm,password)===p.password_hash)return{ok:true,role:'provider',user:p,pending:p.status==='pending'};
+    if(p.password===password)return{ok:true,role:'provider',user:p,pending:p.status==='pending'};
     return{ok:false,err:'Wrong phone number or password.'};
   }
-  // Keep the built-in customer demo account working if it has not been migrated.
   const c=S.customers.find(x=>x.phone===norm);
-  if(c&&raw.indexOf('@')===-1){
-    if(c.password_hash&&await shaPw(norm,password)===c.password_hash)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
-    if(c.password===password)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
+  if(c){
+    if(c.password_hash&&await shaPw(norm,password)===c.password_hash)return{ok:true,role:'customer',user:c};
+    if(c.password===password)return{ok:true,role:'customer',user:c};
+    return{ok:false,err:'Wrong phone number or password.'};
   }
-  const r=await apiAuth('/api/auth/login',{login:raw,password});
-  if(!r.ok)return r;
-  return{ok:true,role:r.user.role||'customer',user:{...r.user,uiLang:r.user.uiLang||S.uiLang||'en'},token:r.token,remoteCustomer:true};
+  return{ok:false,err:'Wrong phone number or password.'};
 }
-async function registerCustomer(phone,email,password,name){
-  const norm=normPhone(phone),mail=normEmail(email);
+async function registerCustomer(phone,password,name){
+  const norm=normPhone(phone);
   if(!/^0\d{10}$/.test(norm))return{ok:false,err:'Please enter a valid Nigerian phone number, e.g. 08012345678.'};
-  if(!name||!name.trim())return{ok:false,err:'Please enter your full name.'};
-  if(!mail)return{ok:false,err:'Please enter your Gmail or email address.'};
-  if(!validEmail(mail))return{ok:false,err:'Please enter a valid email address.'};
   if(!password||password.length<6)return{ok:false,err:'Password must be at least 6 characters.'};
-  const r=await apiAuth('/api/auth/register',{name:name.trim(),phone:norm,email:mail,password});
-  if(!r.ok)return r;
-  return{ok:true,user:{...r.user,uiLang:S.uiLang||'en'},token:r.token,remoteCustomer:true};
+  if(!name||!name.trim())return{ok:false,err:'Please enter your full name.'};
+  if(S.customers.find(x=>x.phone===norm))return{ok:false,err:'This phone number already has an account. Please log in.'};
+  const c={id:uid(),phone:norm,full_name:name.trim(),password_hash:await shaPw(norm,password),address:'',uiLang:uiLang};
+  S.customers.push(c);saveState();return{ok:true,user:c};
 }
 /* tiny deterministic sha256-ish (browser crypto available normally) */
 async function sha256Async(s){const buf=new TextEncoder().encode(s);const h=await crypto.subtle.digest('SHA-256',buf);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('')}
@@ -657,55 +639,6 @@ function cartCount(){
   return ids;
 }
 
-/* ---------- Google customer sign-in ---------- */
-const GOOGLE_CLIENT_ID='186325933569-f356ld9i6m4k25ebvo088ir664fnvp34.apps.googleusercontent.com';
-let jgGoogleInitialized=false;
-let jgGoogleCallback=null;
-
-function renderJajiGoGoogleButton(){
-  const el=document.getElementById('googleBtn');
-  if(!el)return;
-  if(!window.google?.accounts?.id){
-    setTimeout(renderJajiGoGoogleButton,300);
-    return;
-  }
-  if(!jgGoogleInitialized){
-    google.accounts.id.initialize({
-      client_id:GOOGLE_CLIENT_ID,
-      callback:(response)=>{
-        if(typeof jgGoogleCallback==='function')jgGoogleCallback(response);
-      },
-      auto_select:false,
-      cancel_on_tap_outside:true
-    });
-    jgGoogleInitialized=true;
-  }
-  el.innerHTML='';
-  google.accounts.id.renderButton(el,{
-    theme:'outline',
-    size:'large',
-    width:Math.min(400,Math.max(240,el.parentElement?.clientWidth||320)),
-    text:'continue_with',
-    shape:'rectangular',
-    logo_alignment:'left'
-  });
-}
-
-async function jgGoogleCustomerLogin(credential){
-  const r=await apiAuth('/api/auth/google',{credential});
-  if(!r.ok)return r;
-  if(r.user?.role && r.user.role!=='customer'){
-    return{ok:false,err:'Google sign-in is only available for customer accounts.'};
-  }
-  U={role:'customer',user:{...r.user,uiLang:r.user?.uiLang||S.uiLang||'en'},token:r.token,remoteCustomer:true};
-  setLang(U.user.uiLang||'en');
-  S.current={role:'customer',user:U.user,token:U.token||'local',remoteCustomer:true};
-  saveState();
-  await new Promise(resolve=>setTimeout(resolve,300));
-  await boot();
-  return{ok:true};
-}
-
 /* ---------- Auth screens ---------- */
 function showAuth(initialMsg){
   $('#hdr').style.display='none';$('#tabs').style.display='none';
@@ -720,14 +653,10 @@ function showAuth(initialMsg){
         <button class="chip ${mode==='login'?'on':''}" id="mLogin">${L.login}</button>
         <button class="chip ${mode==='register'?'on':''}" id="mRegister">${L.register}</button>
       </div>
-      <div class="field"><label>${mode==='login'?'Email or phone number':L.phone}</label><input id="aPhone" type="text" placeholder="Email or 08012345678" inputmode="email"></div>
-      ${mode==='register'?`<div class="field"><label>${L.name}</label><input id="aName" type="text" autocomplete="name"></div><div class="field"><label>Gmail / Email</label><input id="aEmail" type="email" placeholder="you@gmail.com" inputmode="email" autocomplete="email"></div>`:''}
-      <div class="field"><label>${L.password}</label><input id="aPass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+      <div class="field"><label>${L.phone}</label><input id="aPhone" type="tel" placeholder="08012345678" inputmode="tel"></div>
+      <div class="field"><label>${L.password}</label><input id="aPass" type="password" placeholder="••••••••"></div>
+      ${mode==='register'?`<div class="field"><label>${L.name}</label><input id="aName" type="text"></div>`:''}
       <button class="btn" id="aGo">${mode==='register'?L.register:L.login}</button>
-      <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--mut)">
-        <span style="flex:1;height:1px;background:var(--line)"></span><span style="font-size:12px">OR</span><span style="flex:1;height:1px;background:var(--line)"></span>
-      </div>
-      <div id="googleBtn" style="display:flex;justify-content:center;min-height:44px"></div>
       <div class="auth-loading" id="authLoading" aria-live="polite">
         <span class="auth-spinner" aria-hidden="true"></span>
         <span>${mode==='register'?'Creating your account':'Signing you in'}<span class="auth-dots"><span>.</span><span>.</span><span>.</span></span></span>
@@ -742,26 +671,8 @@ function showAuth(initialMsg){
         </div>
       </div>
     </div>`;
-
     $('#mLogin').onclick=()=>{mode='login';initialMsg='';render()};
     $('#mRegister').onclick=()=>{mode='register';initialMsg='';render()};
-
-    jgGoogleCallback=async(response)=>{
-      if(!response?.credential){initialMsg='Google sign-in did not return a credential. Please try again.';render();return;}
-      const loading=$('#authLoading'),gbtn=$('#googleBtn');
-      if(loading)loading.classList.add('show');
-      if(gbtn)gbtn.style.pointerEvents='none';
-      try{
-        const r=await jgGoogleCustomerLogin(response.credential);
-        if(!r.ok){initialMsg=r.err||'Google sign-in failed. Please try again.';render();return;}
-      }catch(e){
-        console.error('JajiGo Google login error:',e);
-        initialMsg='Google sign-in failed. Please try again.';
-        render();
-      }
-    };
-    renderJajiGoGoogleButton();
-
     $('#aGo').onclick=async()=>{
       if($('#aGo').disabled)return;
       const ph=$('#aPhone').value.trim(),pw=$('#aPass').value;
@@ -771,16 +682,16 @@ function showAuth(initialMsg){
       loading.classList.add('show');
       try{
         if(mode==='register'){
-          const r=await registerCustomer(ph,$('#aEmail').value.trim(),pw,$('#aName').value.trim());
+          const r=await registerCustomer(ph,pw,$('#aName').value.trim());
           if(!r.ok){initialMsg=r.err;render();return;}
-          U={role:'customer',user:r.user,token:r.token,remoteCustomer:!!r.remoteCustomer};
+          U={role:'customer',user:r.user};
         } else {
           const r=await login(ph,pw);
           if(!r.ok){initialMsg=r.err;render();return;}
-          U={role:r.role,user:r.user,pending:r.pending||false,token:r.token,remoteCustomer:!!r.remoteCustomer};
+          U={role:r.role,user:r.user,pending:r.pending||false};
           setLang(U.user.uiLang||'en');
         }
-        S.current={role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};
+        S.current={role:U.role,user:U.user,token:true};
         saveState();
         await new Promise(resolve=>setTimeout(resolve,550));
         await boot();
@@ -789,7 +700,6 @@ function showAuth(initialMsg){
   }
   render();
 }
-
 window.useDemo=function(sel){
   const map={
     customer:['08011111111','demo1234'],
@@ -801,11 +711,12 @@ window.useDemo=function(sel){
 }
 async function boot(){
   if(!U)return showAuth();
+  // re-hash newly registered customer's plain-text password to fake-stored hash
   if(U.role==='customer'){
-    const c=S.customers.find(x=>String(x.id)===String(U.user?.id));
-    if(c&&!U.remoteCustomer)U.user=c;
-    if(!U.user)return showAuth();
-    setLang(U.user.uiLang||'en');
+    const c=S.customers.find(x=>x.id===U.user.id);
+    if(!c)return showAuth();
+    U.user=c;
+    setLang(c.uiLang||'en');
   }
   if(U.role==='admin')return renderAdmin();
   if(U.role==='provider')return renderProvider();
@@ -2539,11 +2450,10 @@ async function shaPw(norm,pw){
   if(S.current&&S.current.token){
     // Restore the complete session object. The previous code restored only the user
     // and lost the role, which could break automatic session resume after reload.
-    U={role:S.current.role,user:S.current.user,token:S.current.token,remoteCustomer:!!S.current.remoteCustomer};
+    U={role:S.current.role,user:S.current.user,token:true};
     if(!U.role||!U.user)U=null;
-    // Keep local demo customers working while allowing real API customers to restore.
-    if(U&&U.role==='customer'&&!U.remoteCustomer){const cc=S.customers.find(x=>String(x.id)===String(U.user.id));if(cc)U.user=cc;}
-    if(U&&U.role==='customer')setLang(U.user.uiLang||'en');
+    // ensure demo customer lookup still works (password_hash stored already)
+    if(U&&U.role==='customer'){const cc=S.customers.find(x=>x.id===U.user.id);if(cc)U.user=cc;setLang(cc?.uiLang||'en')}
     if(U)boot();else showAuth();
   } else if(S.default_login){
     window.useDemoImpl(S.default_login);
@@ -2554,7 +2464,7 @@ async function shaPw(norm,pw){
 
 /* ---------- Save current for resume ---------- */
 function _saveSession(U){
-  S.current={role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};
+  S.current={role:U.role,user:U.user,token:'local'};
   saveState();
 }
 const origBoot=boot;
@@ -2902,7 +2812,7 @@ async function jgCallSecureAI(message){
    ============================================================= */
 window.JAJIGO_GEMINI_CONFIG={
   // After deployment set this to your Render URL, e.g. https://jajigo-gemini-ai.onrender.com
-  baseUrl: localStorage.getItem('JAJIGO_AI_BACKEND_URL') || '',
+  baseUrl:'https://jajigo-gemini-ai.onrender.com',
   endpoint:'/api/ai/chat',
   healthEndpoint:'/api/ai/health',
   timeoutMs:30000,
