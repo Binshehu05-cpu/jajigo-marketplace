@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": {"start":"node server.js","dev":"node --watch server.js"},
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
   "dependencies": {
-    "bcryptjs":"^3.0.2",
-    "cors":"^2.8.5",
-    "dotenv":"^17.2.2",
-    "express":"^5.1.0",
-    "google-auth-library":"^9.14.0",
-    "jsonwebtoken":"^9.0.2",
-    "pg":"^8.16.3"
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3"
   }
 }
