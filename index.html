@@ -308,7 +308,72 @@ nav.tabs{position:fixed!important}
 }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<style>.auth-password-wrap{position:relative}.auth-password-wrap input{width:100%;padding-right:66px!important}.auth-show-pass{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#168b45;font-size:12px;font-weight:700;padding:6px 7px;border-radius:8px}.auth-show-pass:active{background:var(--g3,#eef8f1)}.auth-field-error{display:none;color:#c62828;font-size:12px;margin-top:5px}.auth-field-error.show{display:block}.auth-invalid{border-color:#d32f2f!important;box-shadow:0 0 0 1px rgba(211,47,47,.12)!important}</style></head>
+<style>.auth-password-wrap{position:relative}.auth-password-wrap input{width:100%;padding-right:66px!important}.auth-show-pass{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#168b45;font-size:12px;font-weight:700;padding:6px 7px;border-radius:8px}.auth-show-pass:active{background:var(--g3,#eef8f1)}.auth-field-error{display:none;color:#c62828;font-size:12px;margin-top:5px}.auth-field-error.show{display:block}.auth-invalid{border-color:#d32f2f!important;box-shadow:0 0 0 1px rgba(211,47,47,.12)!important}</style>
+<style id="jajigo-auth-scene-v39">
+/* v39 — Login & registration: floating shopping / order emojis on a fresh green + marigold canvas.
+   Everything is scoped to body.auth-on, which is only set while an auth screen is showing. */
+#authScene{display:none;position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+  background:
+    radial-gradient(62% 38% at 6% 4%,rgba(22,163,74,.24),transparent 72%),
+    radial-gradient(56% 38% at 100% 34%,rgba(244,181,63,.26),transparent 72%),
+    radial-gradient(70% 42% at 0% 100%,rgba(255,122,0,.15),transparent 72%),
+    linear-gradient(170deg,#dff3e7 0%,#f2fbf6 46%,#fff7ea 100%)}
+body.auth-on #authScene{display:block}
+body.auth-on::before,body.auth-on::after,body.auth-on .jg-ambient-icons{display:none!important}
+#authScene i{position:absolute;left:var(--x);top:var(--y);font-style:normal;line-height:1;font-size:var(--s,40px);opacity:.88;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  filter:drop-shadow(0 8px 10px rgba(14,122,79,.16));
+  transform:translate3d(0,0,0) rotate(var(--r0,-8deg));
+  animation:jgAuthFloat var(--d,9s) ease-in-out var(--dl,0s) infinite alternate;will-change:transform}
+@keyframes jgAuthFloat{from{transform:translate3d(0,0,0) rotate(var(--r0,-8deg))}to{transform:translate3d(var(--dx,10px),-26px,0) rotate(var(--r1,8deg))}}
+@media (max-width:420px){#authScene i{font-size:calc(var(--s,40px) * .82)}}
+@media (prefers-reduced-motion:reduce){#authScene i{animation:none}}
+
+/* Card */
+body.auth-on #app>.card{background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+  border:1px solid rgba(255,255,255,.9);border-radius:24px;padding:16px;
+  box-shadow:0 20px 50px rgba(14,122,79,.15),0 2px 8px rgba(14,122,79,.06)}
+
+/* Login / Register switch */
+body.auth-on .auth-main-tabs{background:rgba(14,122,79,.09);padding:4px;border-radius:16px;gap:4px}
+body.auth-on .auth-main-tabs .chip{border:0;background:transparent;border-radius:12px;color:var(--g2);font-size:14px;min-height:42px}
+body.auth-on .auth-main-tabs .chip.on{background:#fff;color:var(--g);box-shadow:0 3px 10px rgba(14,122,79,.16)}
+/* Customer / Provider switch */
+body.auth-on .auth-role-tabs .chip{background:rgba(255,255,255,.72);border-color:rgba(14,122,79,.16);color:var(--g2);border-radius:14px}
+body.auth-on .auth-role-tabs .chip.on{background:linear-gradient(135deg,#17a34a,#0e7a4f);border-color:transparent;color:#fff}
+
+/* Intro block */
+body.auth-on .auth-intro{background:linear-gradient(135deg,rgba(231,244,238,.95),rgba(255,247,234,.9));border:1px solid rgba(14,122,79,.12);border-radius:16px;padding:13px 14px}
+body.auth-on .auth-intro b{color:var(--g2);font-size:15px}
+body.auth-on .auth-intro .mut{margin-top:2px}
+
+/* Fields */
+body.auth-on .field label{color:var(--g2)}
+body.auth-on .field input,body.auth-on .field select,body.auth-on .field textarea{height:48px;border:1.5px solid #d7e9de;border-radius:14px;background:rgba(255,255,255,.96);transition:border-color .15s,box-shadow .15s}
+body.auth-on .field textarea{height:84px}
+body.auth-on .field input:focus,body.auth-on .field select:focus,body.auth-on .field textarea:focus{border-color:var(--g);box-shadow:0 0 0 4px rgba(22,163,74,.15)}
+body.auth-on .field input::placeholder,body.auth-on .field textarea::placeholder{color:#9aa8a1}
+body.auth-on .terms-row{border:1px solid rgba(14,122,79,.12)}
+
+/* Buttons & links */
+body.auth-on #app .btn:not(.sec){background:linear-gradient(135deg,#17a34a,#0e7a4f);box-shadow:0 10px 22px rgba(14,122,79,.28);height:50px;border-radius:14px}
+body.auth-on #app .btn.sm{height:36px;border-radius:10px;box-shadow:none}
+body.auth-on #app .btn:disabled{box-shadow:none}
+body.auth-on #app .btn:active{transform:translateY(1px)}
+body.auth-on #app button.link{background:none;border:0;padding:3px 4px;font:inherit;font-weight:700;color:var(--g);text-decoration:underline;text-decoration-color:rgba(22,163,74,.35);text-underline-offset:3px;cursor:pointer}
+body.auth-on .orline{margin:16px 0}
+
+/* Developer test accounts */
+body.auth-on .auth-demo{margin-top:18px;padding:12px;border:1.5px dashed rgba(14,122,79,.25);border-radius:16px;background:rgba(255,255,255,.5)}
+body.auth-on .auth-demo-t{font-size:12px;font-weight:700;color:var(--mut);margin-bottom:8px}
+body.auth-on .auth-demo-row{display:flex;flex-wrap:wrap;gap:8px;font-size:13px}
+body.auth-on #app .auth-demo-row button.link{background:#fff;border:1px solid rgba(14,122,79,.18);border-radius:999px;padding:7px 12px;text-decoration:none}
+
+/* Provider application: the page scene replaces the panel's own emoji layer */
+body.auth-on .provider-float-bg{display:none}
+body.auth-on .provider-form-panel{background:none;border:0;box-shadow:none;padding:2px 0;-webkit-backdrop-filter:none;backdrop-filter:none}
+</style>
+</head>
 <body>
 <div class="jg-ambient-icons" aria-hidden="true">
   <span class="jg-float-icon jg-fi1">🛍️</span><span class="jg-float-icon jg-fi2">🍔</span>
@@ -799,6 +864,7 @@ function showAuth(initialMsg){
     const providerScreen=isProvider||isProviderLogin;
     const title=isRegister?'Create account':isProvider?'Become a Provider':isProviderLogin?'Provider Login':'Log in';
     $('#app').innerHTML=`
+    <span class="auth-keep" hidden></span>
     <div style="text-align:center;padding:30px 0 10px">
       <div class="auth-logo-live" aria-label="JajiGo live logo"><div class="brand-logo"><span class="brand-jaji">Jaji</span><span class="brand-go">Go</span></div></div>
       <div class="mut" style="font-style:italic">“Everything you need, right around Jaji.”</div>
@@ -880,9 +946,9 @@ function showAuth(initialMsg){
       `:''}
 
       ${initialMsg?`<div class="mut" style="margin-top:10px;text-align:center;color:var(--o)">${esc(initialMsg)}</div>`:''}
-      ${(mode==='login'||mode==='register')?`<div style="margin-top:14px;padding:10px;background:var(--g3);border-radius:12px">
-        <div style="font-weight:700;margin-bottom:6px">Developer test accounts</div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+      ${(mode==='login'||mode==='register')?`<div class="auth-demo">
+        <div class="auth-demo-t">Developer test accounts</div>
+        <div class="auth-demo-row">
           <button class="link" onclick="useDemo('customer')">👤 Customer demo</button>
           <button class="link" onclick="useDemo('provider_food')">🏪 Provider demo</button>
           <button class="link" onclick="useDemo('admin')">🛡️ Admin demo</button>
@@ -987,6 +1053,7 @@ function showAuth(initialMsg){
 function renderProviderApplicationSuccess(provider){
   $('#hdr').style.display='none';$('#tabs').style.display='none';
   $('#app').innerHTML=`
+  <span class="auth-keep" hidden></span>
   <div class="card" style="text-align:center;margin-top:24px">
     <div class="success-badge">✅</div>
     <div style="font-size:19px;font-weight:800">Application Received!</div>
@@ -3353,6 +3420,29 @@ setTimeout(()=>{if(U){window.jajigoGeminiStatus='connecting';jgGeminiCheckHealth
     originalLogout.apply(this,arguments);
     setTimeout(function(){history.replaceState(null,'',location.href);navReady=false;},0);
   };
+})();
+</script>
+
+<!-- v39: auth screens — floating shopping & order emojis -->
+<script id="jajigo-auth-scene-v39">
+(function(){
+  const app=document.getElementById('app');if(!app)return;
+  // [emoji, left %, top %, size px, duration s, delay s, drift px, rotate from°, rotate to°]
+  const E=[
+    ['🛍️',13,2,46,9,0,12,-10,8],['📦',80,3,46,11,-3,-14,6,-8],['🧾',44,2,34,8,-5,8,-6,10],
+    ['🛒',90,22,44,10,-2,-10,10,-6],['🛵',-2,27,48,12,-7,14,-8,8],['🎁',1,11,38,9,-4,10,-12,6],
+    ['🛍️',89,11,34,8,-6,-8,8,-8],['📦',8,48,40,11,-1,12,-6,10],['🧾',92,52,38,9,-8,-12,8,-6],
+    ['🛒',15,70,46,10,-3,10,-10,8],['🛵',84,74,52,12,-9,-14,6,-8],['🛍️',48,86,50,9,-2,8,-8,10],
+    ['📦',28,92,36,11,-6,-10,6,-6],['🎁',70,91,40,8,-4,12,-8,8],['🧾',-1,88,34,10,-5,8,8,-6]
+  ];
+  const scene=document.createElement('div');
+  scene.id='authScene';scene.setAttribute('aria-hidden','true');
+  scene.innerHTML=E.map(([c,x,y,s,d,dl,dx,r0,r1])=>`<i style="--x:${x}%;--y:${y}%;--s:${s}px;--d:${d}s;--dl:${dl}s;--dx:${dx}px;--r0:${r0}deg;--r1:${r1}deg">${c}</i>`).join('');
+  document.body.insertBefore(scene,document.body.firstChild);
+  // The scene shows only while an auth screen (marked by .auth-keep) is in #app.
+  const sync=()=>document.body.classList.toggle('auth-on',!!app.querySelector('.auth-keep'));
+  new MutationObserver(sync).observe(app,{childList:true});
+  sync();
 })();
 </script>
 </body>
