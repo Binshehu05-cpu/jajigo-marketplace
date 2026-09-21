@@ -398,6 +398,60 @@ body:not(.auth-on) .chip.on{background:linear-gradient(135deg,#17a34a,#0e7a4f);b
 body:not(.auth-on) .btn:not(.sec){background:linear-gradient(135deg,#16a34a 0%,#0e7a4f 55%,#0a5c3b 100%);}
 body:not(.auth-on) .pill{border:1px solid rgba(14,122,79,.08);}
 </style>
+
+<style id="jajigo-provider-products-ai-v40">
+/* v40 — Provider product management + AI visual upgrade */
+.provider-products-hero{
+  position:relative;overflow:hidden;border-radius:20px;padding:16px;margin:8px 0 14px;
+  background:linear-gradient(135deg,rgba(231,250,240,.96),rgba(255,248,235,.96));
+  border:1px solid rgba(14,122,79,.12);box-shadow:0 12px 28px rgba(14,122,79,.08)
+}
+.provider-products-hero:after{content:"🛍️";position:absolute;right:12px;top:4px;font-size:70px;opacity:.09}
+.provider-products-hero .ptitle{font-size:21px;font-weight:900;color:var(--brand-dark)}
+.provider-products-hero .psub{white-space:normal;color:var(--mut);font-size:12.5px;margin-top:4px;max-width:78%}
+.provider-add-main{height:50px!important;border-radius:15px!important;margin-top:12px;box-shadow:0 10px 22px rgba(14,122,79,.22)!important}
+.provider-product-card{background:rgba(255,255,255,.94);border:1px solid rgba(14,122,79,.10);border-radius:18px;padding:11px;box-shadow:0 9px 25px rgba(14,122,79,.06)}
+.provider-product-photo{width:76px;height:76px;border-radius:15px;overflow:hidden;background:linear-gradient(135deg,#edf8f1,#fff5e7);display:flex;align-items:center;justify-content:center;flex:none;font-size:32px;border:1px solid rgba(14,122,79,.08)}
+.provider-product-photo img{width:100%;height:100%;object-fit:cover}
+.provider-product-meta{font-size:11.5px;color:var(--mut);margin-top:3px;line-height:1.35}
+.provider-product-price{font-size:16px;font-weight:900;color:var(--g);margin-top:4px}
+.provider-product-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:9px}
+.provider-product-actions .chip{padding:7px 5px;text-align:center;font-size:11px}
+.product-upload{
+  border:1.5px dashed rgba(14,122,79,.30);border-radius:16px;padding:12px;background:linear-gradient(135deg,#f4fbf7,#fffaf1)
+}
+.product-upload-label{display:flex;align-items:center;gap:10px;cursor:pointer}
+.product-upload-icon{width:44px;height:44px;border-radius:13px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 5px 15px rgba(14,122,79,.08)}
+.product-preview{display:none;margin-top:10px;position:relative;border-radius:14px;overflow:hidden;height:170px;background:#eef5f0}
+.product-preview.show{display:block}
+.product-preview img{width:100%;height:100%;object-fit:cover}
+.product-preview .remove-preview{position:absolute;right:8px;top:8px;border:0;background:rgba(23,32,51,.78);color:#fff;border-radius:999px;padding:5px 9px;font-weight:800}
+.product-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.product-helper{font-size:10.5px;color:var(--mut);margin-top:4px;line-height:1.35}
+body:not(.auth-on) .sheet .inner.ai-sheet{
+  background:
+    radial-gradient(80% 38% at 0% 0%,rgba(22,163,74,.12),transparent 70%),
+    radial-gradient(70% 34% at 100% 15%,rgba(244,181,63,.13),transparent 72%),
+    linear-gradient(170deg,#f4fbf7 0%,#ffffff 48%,#fffaf1 100%);
+}
+.ai-sheet .ai-head{
+  background:linear-gradient(135deg,rgba(231,244,238,.96),rgba(255,247,234,.95));
+  border:1px solid rgba(14,122,79,.12);border-radius:18px;padding:13px;margin-bottom:10px
+}
+.ai-sheet .ai-head .ai-title{font-size:20px;font-weight:900;color:var(--brand-dark)}
+.ai-sheet .ai-head .ai-sub{font-size:11.5px;color:var(--mut);margin-top:3px}
+.ai-sheet #aiBox{padding:4px 2px}
+.ai-sheet .bub{box-shadow:0 5px 15px rgba(14,122,79,.05);border-color:rgba(14,122,79,.10)}
+.ai-sheet .msgrow.me .bub{background:linear-gradient(135deg,#17a34a,#0e7a4f);box-shadow:0 7px 16px rgba(14,122,79,.16)}
+.ai-sheet .smartchip{background:rgba(255,255,255,.88);border-color:rgba(14,122,79,.12)}
+.ai-sheet .ai-compose{background:rgba(255,255,255,.82);padding:7px;border-radius:15px;border:1px solid rgba(14,122,79,.10);backdrop-filter:blur(6px)}
+.ai-sheet .ai-compose input{background:#fff!important;border-color:#d7e9de!important}
+@media(max-width:420px){
+  .provider-product-actions{grid-template-columns:1fr 1fr 1fr}
+  .provider-product-photo{width:68px;height:68px}
+}
+</style>
+
 </head>
 <body>
 <div class="jg-ambient-icons" aria-hidden="true">
@@ -2023,8 +2077,7 @@ window.startDeliveryWatch=startDeliveryWatch;window.openDeliveryTracking=openDel
 function openAI(){
   if(!U)return showAuth();
   const role=aiRoleName();
-  openSheet(`<div class="grab"></div><div class="h1">✨ ${L.ask}</div>
-  <div class="mut" style="margin:-4px 0 9px">Signed in as <b>${role}</b></div>
+  openSheet(`<div class="grab"></div><div class="ai-head"><div class="ai-title">✨ ${L.ask}</div><div class="ai-sub">Smart help for shopping, providers, orders and JajiGo services · Signed in as <b>${role}</b></div></div>
   <div class="chips" style="margin-bottom:8px">
     <button class="chip ${uiLang==='en'?'on':''}" onclick="setLang('en');openAI()">🇬🇧 English</button>
     <button class="chip ${uiLang==='pcm'?'on':''}" onclick="setLang('pcm');openAI()">🇳🇬 Pidgin</button>
@@ -2032,12 +2085,13 @@ function openAI(){
   </div>
   <div id="aiBox" style="max-height:50vh;overflow-y:auto;margin-bottom:10px"></div>
   <div class="smartchips" style="margin-bottom:8px"><button class="smartchip" onclick="aiQuickIntent('food')">🍔 Food</button><button class="smartchip" onclick="aiQuickIntent('service')">🔧 Service</button><button class="smartchip" onclick="aiQuickIntent('food under ₦2000')">💸 Budget</button><button class="smartchip" onclick="aiQuickIntent('recommend something')">⭐ Recommend</button><button class="smartchip" onclick="clearAIConversation()">🗑️ Clear Chat</button></div>
-  <div class="row" style="gap:8px"><input id="aiIn" placeholder="${esc(L.ai_ph)}" style="flex:1;height:46px;border:1.5px solid var(--line);border-radius:12px;padding:0 12px;font-size:15px"><button class="btn sm" id="aiGo" style="height:46px;width:56px">➤</button></div>`);
+  <div class="row ai-compose" style="gap:8px"><input id="aiIn" placeholder="${esc(L.ai_ph)}" style="flex:1;height:46px;border:1.5px solid var(--line);border-radius:12px;padding:0 12px;font-size:15px"><button class="btn sm" id="aiGo" style="height:46px;width:56px">➤</button></div>`);
   const introMap={
     en:`Hi! I'm <b>JajiGo Shopping AI</b> 🇳🇬.<br>Tell me what you need — e.g. <b>"I need food for tonight under ₦5,000"</b>.`,
     pcm:`How far! I be <b>JajiGo Shopping AI</b> 🇳🇬.<br>Wetin you need? e.g. <b>"Abeg find food wey no pass ₦5,000"</b>.`,
     ha:`Sannu! Ni <b>JajiGo Shopping AI</b> ne 🇳🇬.<br>Me kake? misali <b>"Ina bukatar abinci da kasa da ₦5,000"</b>.`
   };
+  const aiInner=$('#sheet .inner'); if(aiInner) aiInner.classList.add('ai-sheet');
   $('#aiBox').innerHTML=`<div class="msgrow"><div class="bub">${introMap[uiLang]}</div></div>`;
   $('#aiIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('#aiGo').click()});
   $('#aiGo').onclick=sendAI;
@@ -2215,10 +2269,40 @@ function renderProvider(){
     const list=S.products.filter(x=>x.provider_id===p.id);
     const categoryName=categoryById(p.category_id)?.name||p.business_type||'Other';
     const addLabel=isServiceCategory(categoryName)?'＋ Add Service':'＋ Add Product';
-    $('#app').innerHTML=`<button class="btn sm sec" onclick="provView.tab='overview';renderProvider()">← Back</button>
-    <div class="row" style="align-items:center;margin-top:6px"><h2 class="sec" style="margin:0">📦 My Products (${list.length})</h2><button class="btn sm" style="width:auto" onclick="provAddProduct()">${addLabel}</button></div>
-    <div class="mut" style="margin:6px 0 10px">Add your own ${categoryName.toLowerCase()} item/service. It will appear in your JajiGo listing after you save it.</div>
-    <div style="display:flex;flex-direction:column;gap:9px">${list.map(x=>`<div class="card"><div class="row"><div style="display:flex;gap:9px;align-items:center;min-width:0"><div style="font-size:24px">${esc(x.icon||'📦')}</div><div style="min-width:0"><div class="pname">${esc(x.name)}</div><div class="mut">${money(x.price)} · ${esc(categoryById(x.category_id)?.name||'')} · ${x.type==='service'?'Service':'Product'}</div></div></div><div class="chips"><button class="chip" onclick="provToggle('${x.id}',${x.is_available?0:1})">${x.is_available?'✔ On':'✖ Off'}</button><button class="chip" onclick="provEditPrice('${x.id}')">✏ Edit</button><button class="chip" onclick="provDeleteProduct('${x.id}')">🗑 Delete</button></div></div></div>`).join('')||'<div class="empty"><div class="ei">📦</div>You have no products yet. Tap “＋ Add Product” to create your first one.</div>'}</div>`;
+    const productCards=list.map(x=>{
+      const photo=x.photo?`<img src="${x.photo}" alt="${esc(x.name)}">`:`${esc(x.icon||'📦')}`;
+      const type=x.type==='service'?'Service':'Product';
+      return `<div class="provider-product-card">
+        <div style="display:flex;gap:10px;align-items:center">
+          <div class="provider-product-photo">${photo}</div>
+          <div style="min-width:0;flex:1">
+            <div class="pname">${esc(x.name)}</div>
+            <div class="provider-product-price">${money(x.price)}</div>
+            <div class="provider-product-meta">${esc(categoryById(x.category_id)?.name||categoryName)} · ${type} · ${x.is_available?'Available':'Unavailable'}${x.stock!=null&&x.stock!==''?' · Stock: '+esc(String(x.stock)):''}</div>
+          </div>
+        </div>
+        ${x.desc?`<div class="provider-product-meta" style="margin-top:8px">${esc(x.desc)}</div>`:''}
+        <div class="provider-product-actions">
+          <button class="chip" onclick="provToggle('${x.id}',${x.is_available?0:1})">${x.is_available?'✔ On':'✖ Off'}</button>
+          <button class="chip" onclick="provEditPrice('${x.id}')">✏ Edit</button>
+          <button class="chip" onclick="provDeleteProduct('${x.id}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+    $('#app').innerHTML=`
+      <button class="btn sm sec" type="button" onclick="provView.tab='overview';renderProvider()">← Back</button>
+      <div class="provider-products-hero">
+        <div class="ptitle">📦 My Products</div>
+        <div class="psub">Add and manage everything customers can buy or book from your JajiGo business. Product photos are supported.</div>
+        <button class="btn provider-add-main" onclick="provAddProduct()">${addLabel}</button>
+      </div>
+      <div class="row" style="margin:0 2px 9px">
+        <div class="mut"><b>${list.length}</b> listing${list.length===1?'':'s'}</div>
+        <span class="pill">${esc(categoryName)}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${productCards||`<div class="empty"><div class="ei">📦</div><b>No listings yet</b><div style="margin-top:4px">Tap <b>＋ Add Product</b> above to add your first item, service, price and photo.</div></div>`}
+      </div>`;
   }
   function paintBusiness(){
     $('#app').innerHTML=`<button class="btn sm sec" onclick="provView.tab='overview';renderProvider()">← Back</button>
@@ -2370,10 +2454,6 @@ function renderProvider(){
     <h2 class="sec">💬 Customer chats</h2>
     <div style="display:flex;flex-direction:column;gap:8px">${threads.map(cid=>`<div class="vcard" style="cursor:pointer" onclick="provView.chat_cust='${cid}';renderProvider()"><div class="vlogo" style="background:var(--g)">🧑🏾</div><div><div class="vname">${esc((S.customers.find(c=>c.id===cid)||{}).full_name||'Customer')}</div><div class="mut">Tap to open chat</div></div></div>`).join('')}</div>`;
   }
-  function paintProducts(){
-    const list=(S.products||[]).slice();
-    $('#app').innerHTML=`<button class="btn sm sec" onclick="adminView='dash';renderAdmin()">← Dashboard</button><h2 class="sec">📦 Product Management</h2><div class="mut" style="margin-bottom:10px">Review listings, availability and providers.</div>${list.length?list.map(x=>{const pr=providerById(x.provider_id);return `<div class="card" style="margin-bottom:8px"><div class="row"><div><b>${esc(x.name)}</b><div class="mut">${esc(pr?.business_name||'Unknown provider')} · ${money(x.price)}</div></div><span class="pill ${x.is_available?'':'red'}">${x.is_available?'Available':'Unavailable'}</span></div><div style="display:flex;gap:7px;margin-top:9px"><button class="btn sm sec" onclick="adminToggleProduct('${esc(x.id)}')">${x.is_available?'Mark Unavailable':'Mark Available'}</button><button class="btn sm warn" onclick="adminDeleteProduct('${esc(x.id)}')">Delete</button></div></div>`}).join(''):'<div class="empty">No products found.</div>'}`;
-  }
   function paintComplaints(){
     const list=(S.complaints||[]).filter(c=>Number(c.provider_id)===Number(p.id)).slice().reverse();
     $('#app').innerHTML=`<button class="btn sm sec" onclick="provView.tab='overview';renderProvider()">← Back</button>
@@ -2411,33 +2491,97 @@ window.provAddProduct=function(){
   const cat=categoryById(provider.category_id);
   const catName=cat?.name||provider.business_type||'Other';
   const serviceCategory=isServiceCategory(catName);
-  openSheet(`<div class="h1">${serviceCategory?'＋ Add Service':'＋ Add Product'}</div>
-    <div class="mut" style="margin:4px 0 12px">This listing belongs to <b>${esc(provider.business_name)}</b>.</div>
-    <div class="field"><label>${serviceCategory?'Service name':'Product name'}</label><input id="apName" placeholder="e.g. ${serviceCategory?'Full Interior Cleaning':'Meat Pie'}" maxlength="80"></div>
-    <div class="field"><label>Description</label><textarea id="apDesc" placeholder="Short description" maxlength="240"></textarea></div>
-    <div class="row" style="gap:8px">
-      <div class="field" style="flex:1"><label>Price (₦)</label><input id="apPrice" type="number" min="0" step="50" placeholder="1000"></div>
-      <div class="field" style="flex:1"><label>Icon</label><input id="apIcon" value="${serviceCategory?'🛠️':'📦'}" maxlength="4"></div>
+  const label=serviceCategory?'Service':'Product';
+
+  openSheet(`<div class="h1">＋ Add ${label}</div>
+    <div class="mut" style="margin:4px 0 12px">Add the details customers need before they order or book from <b>${esc(provider.business_name)}</b>.</div>
+
+    <div class="sec-title"><span class="n">1</span> Basic details</div>
+    <div class="field"><label>${label} name <span class="req">*</span></label><input id="apName" placeholder="e.g. ${serviceCategory?'Full Interior Car Cleaning':'Jollof Rice + Chicken'}" maxlength="80"></div>
+    <div class="field"><label>Description <span class="req">*</span></label><textarea id="apDesc" placeholder="Tell customers what they will receive, size/portion, important details, etc." maxlength="500"></textarea><div class="charcount">Up to 500 characters</div></div>
+
+    <div class="product-mini-grid">
+      <div class="field"><label>Price (₦) <span class="req">*</span></label><input id="apPrice" type="number" min="1" step="50" placeholder="2500"></div>
+      <div class="field"><label>Unit</label><select id="apUnit">
+        <option value="item">Per item</option><option value="plate">Per plate</option><option value="piece">Per piece</option><option value="service">Per service</option><option value="kg">Per kg</option><option value="pack">Per pack</option><option value="hour">Per hour</option>
+      </select></div>
     </div>
-    <div class="field"><label>Photo (optional)</label><input id="apPhoto" type="file" accept="image/*"><div class="mut" style="font-size:11px">Use a clear photo of your own item. JajiGo will resize it for the app.</div></div>
-    <button class="btn" id="apGo">Save ${serviceCategory?'Service':'Product'}</button>`);
+
+    <div class="sec-title"><span class="n">2</span> Product image</div>
+    <div class="product-upload">
+      <label class="product-upload-label" for="apPhoto">
+        <span class="product-upload-icon">📷</span>
+        <span><b>Add product photo</b><br><span class="product-helper">Use a clear photo customers can recognize. JPG, PNG or WebP, up to 8MB.</span></span>
+      </label>
+      <input id="apPhoto" type="file" accept="image/*" style="display:none">
+      <div id="apPreview" class="product-preview"><img id="apPreviewImg" alt="Product preview"><button class="remove-preview" type="button" id="apRemovePhoto">✕ Remove</button></div>
+    </div>
+
+    <div class="sec-title"><span class="n">3</span> Availability & selling details</div>
+    <div class="product-mini-grid">
+      <div class="field"><label>Stock / quantity</label><input id="apStock" type="number" min="0" step="1" placeholder="e.g. 20"><div class="product-helper">Leave blank if stock is not tracked.</div></div>
+      <div class="field"><label>Preparation / delivery time</label><select id="apTime">
+        <option value="">Not specified</option><option value="15 min">15 min</option><option value="30 min">30 min</option><option value="1 hour">1 hour</option><option value="2 hours">2 hours</option><option value="same day">Same day</option><option value="1-2 days">1–2 days</option>
+      </select></div>
+    </div>
+    <div class="product-mini-grid">
+      <div class="field"><label>Discounted price (optional)</label><input id="apSale" type="number" min="1" step="50" placeholder="e.g. 2200"></div>
+      <div class="field"><label>Icon fallback</label><input id="apIcon" value="${serviceCategory?'🛠️':'📦'}" maxlength="4"><div class="product-helper">Shown only when no photo is added.</div></div>
+    </div>
+    <div class="field"><label>Availability</label><select id="apAvailable"><option value="1">Available — customers can order</option><option value="0">Unavailable — hide ordering</option></select></div>
+
+    <div class="sec-title"><span class="n">4</span> Customer-facing information</div>
+    <div class="field"><label>Tags / keywords</label><input id="apTags" placeholder="e.g. spicy, chicken, lunch, popular"></div>
+    <div class="terms-row"><input id="apConfirm" type="checkbox"><span>I confirm that the information and photo are accurate and that I am allowed to sell or provide this item/service.</span></div>
+
+    <button class="btn" id="apGo">Save ${label}</button>`);
+
+  const photoInput=$('#apPhoto'), preview=$('#apPreview'), previewImg=$('#apPreviewImg');
+  photoInput.onchange=()=>{
+    const file=photoInput.files?.[0];
+    if(!file)return;
+    if(!file.type.startsWith('image/')){photoInput.value='';return toast('Please choose an image file.');}
+    if(file.size>8*1024*1024){photoInput.value='';return toast('Photo is too large. Choose an image under 8MB.');}
+    const fr=new FileReader();
+    fr.onload=()=>{previewImg.src=fr.result;preview.classList.add('show')};
+    fr.readAsDataURL(file);
+  };
+  $('#apRemovePhoto').onclick=()=>{photoInput.value='';preview.classList.remove('show');previewImg.removeAttribute('src')};
+
   $('#apGo').onclick=async()=>{
     const name=$('#apName').value.trim();
     const desc=$('#apDesc').value.trim();
     const price=Number($('#apPrice').value);
-    const icon=$('#apIcon').value.trim()|| (serviceCategory?'🛠️':'📦');
+    const sale=Number($('#apSale').value||0);
+    const stockRaw=$('#apStock').value.trim();
+    const stock=stockRaw===''?null:Number(stockRaw);
+    const icon=$('#apIcon').value.trim()||(serviceCategory?'🛠️':'📦');
     if(!name)return toast('Enter a name.');
+    if(!desc)return toast('Add a short description.');
     if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
+    if(sale&&(!Number.isFinite(sale)||sale<=0||sale>=price))return toast('Discounted price must be lower than the normal price.');
+    if(stock!==null&&(!Number.isFinite(stock)||stock<0))return toast('Enter a valid stock quantity.');
+    if(!$('#apConfirm').checked)return toast('Please confirm the listing details first.');
+
     let photo='';
-    const file=$('#apPhoto').files?.[0];
+    const file=photoInput.files?.[0];
     if(file){
-      if(!file.type.startsWith('image/'))return toast('Please choose an image file.');
-      if(file.size>8*1024*1024)return toast('Photo is too large. Choose an image under 8MB.');
-      try{photo=await compressProviderPhoto(file)}catch(e){return toast('Could not process that photo. Try another one.')}
+      try{photo=await compressProviderPhoto(file)}
+      catch(e){return toast('Could not process that photo. Try another one.')}
     }
-    const product={id:'p-'+uid(),provider_id:provider.id,category_id:provider.category_id,type:serviceCategory?'service':'product',name,desc,price,is_available:1,icon,pop:0,cat_slug:cat?.slug||'other',business_type:provider.business_type_custom||cat?.name||'Other',photo,created_by_provider:true,created_at:new Date().toISOString()};
+
+    const product={
+      id:'p-'+uid(),provider_id:provider.id,category_id:provider.category_id,
+      type:serviceCategory?'service':'product',name,desc,price,
+      sale_price:sale||null,unit:$('#apUnit').value,stock,
+      prep_time:$('#apTime').value,is_available:Number($('#apAvailable').value)?1:0,
+      icon,pop:0,cat_slug:cat?.slug||'other',
+      business_type:provider.business_type_custom||cat?.name||'Other',
+      photo,tags:$('#apTags').value.split(',').map(x=>x.trim()).filter(Boolean),
+      created_by_provider:true,created_at:new Date().toISOString()
+    };
     S.products.push(product);
-    saveState();closeSheet();toast('✅ '+(serviceCategory?'Service':'Product')+' added successfully');renderProvider();
+    saveState();closeSheet();toast('✅ '+label+' added successfully');renderProvider();
   };
 };
 function compressProviderPhoto(file){
@@ -2462,11 +2606,21 @@ window.provEditPrice=function(pid){
   if(!U||U.role!=='provider')return;
   const p=S.products.find(x=>x.id===pid);if(!p||p.provider_id!==U.user.id)return;
   openSheet(`<div class="h1">✏ Edit ${esc(p.name)}</div>
-  <div class="field" style="margin-top:10px"><label>Name</label><input id="nn" value="${esc(p.name)}"></div>
-  <div class="field"><label>Description</label><textarea id="nd">${esc(p.desc||'')}</textarea></div>
-  <div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Price (₦)</label><input id="np" type="number" min="1" value="${p.price}"></div><div class="field" style="flex:1"><label>Icon</label><input id="ni" value="${esc(p.icon||'📦')}" maxlength="4"></div></div>
+  <div class="field" style="margin-top:10px"><label>Name</label><input id="nn" value="${esc(p.name)}" maxlength="80"></div>
+  <div class="field"><label>Description</label><textarea id="nd" maxlength="500">${esc(p.desc||'')}</textarea></div>
+  <div class="product-mini-grid">
+    <div class="field"><label>Price (₦)</label><input id="np" type="number" min="1" value="${p.price}"></div>
+    <div class="field"><label>Discounted price</label><input id="nsale" type="number" min="1" value="${p.sale_price||''}"></div>
+  </div>
+  <div class="product-mini-grid">
+    <div class="field"><label>Stock</label><input id="nstock" type="number" min="0" value="${p.stock??''}"></div>
+    <div class="field"><label>Unit</label><select id="nunit">
+      ${['item','plate','piece','service','kg','pack','hour'].map(u=>`<option value="${u}" ${p.unit===u?'selected':''}>${u}</option>`).join('')}
+    </select></div>
+  </div>
   <div class="field"><label>Availability</label><select id="nav"><option value="1" ${p.is_available?'selected':''}>Available</option><option value="0" ${!p.is_available?'selected':''}>Unavailable</option></select></div>
-  <div class="field"><label>Replace photo (optional)</label><input id="nphoto" type="file" accept="image/*"></div>
+  <div class="field"><label>Icon fallback</label><input id="ni" value="${esc(p.icon||'📦')}" maxlength="4"></div>
+  <div class="product-upload"><label for="nphoto" class="product-upload-label"><span class="product-upload-icon">📷</span><span><b>${p.photo?'Replace product photo':'Add product photo'}</b><br><span class="product-helper">Optional · image is resized automatically.</span></span></label><input id="nphoto" type="file" accept="image/*" style="display:none"></div>
   <button class="btn" id="npGo">Save Changes</button>`);
   $('#npGo').onclick=async()=>{
     const price=Number($('#np').value);if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
@@ -2734,10 +2888,40 @@ async function renderAdmin(){
   }
   function paintProducts(){
     const list=(S.products||[]).slice();
-    $('#app').innerHTML=`<button class="btn sm sec" onclick="adminView='dash';renderAdmin()">← Dashboard</button>
-      <h2 class="sec">📦 Product Management</h2>
-      <div class="mut" style="margin-bottom:10px">Review listings, availability and providers.</div>
-      ${list.length?list.map(x=>{const pr=providerById(x.provider_id);return `<div class="card" style="margin-bottom:8px"><div class="row"><div><b>${esc(x.name)}</b><div class="mut">${esc(pr?.business_name||'Unknown provider')} · ${money(x.price)}</div></div><span class="pill ${x.is_available?'':'red'}">${x.is_available?'Available':'Unavailable'}</span></div><div style="display:flex;gap:7px;margin-top:9px"><button class="btn sm sec" onclick="adminToggleProduct('${esc(x.id)}')">${x.is_available?'Mark Unavailable':'Mark Available'}</button><button class="btn sm warn" onclick="adminDeleteProduct('${esc(x.id)}')">Delete</button></div></div>`}).join(''):'<div class="empty">No products found.</div>'}`;
+    $('#app').innerHTML=`
+      <button class="btn sm sec" type="button" onclick="openAdminDashboardSafe()">← Dashboard</button>
+      <div class="provider-products-hero" style="margin-top:10px">
+        <div class="ptitle">📦 Product Management</div>
+        <div class="psub">Add, edit and manage products or services. You can upload a product photo and enter the full customer-facing details.</div>
+        <button class="btn provider-add-main" onclick="adminAddProduct()">＋ Add Product</button>
+        <div class="product-helper">📷 Add a clear product photo, price, stock, description and availability — all from one form.</div>
+      </div>
+      <div class="row" style="margin:0 2px 9px">
+        <div class="mut"><b>${list.length}</b> listing${list.length===1?'':'s'}</div>
+        <span class="pill">Admin</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${list.length?list.map(x=>{
+          const pr=providerById(x.provider_id);
+          const photo=x.photo?`<img src="${x.photo}" alt="${esc(x.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:14px">`:`<span style="font-size:28px">${esc(x.icon||'📦')}</span>`;
+          return `<div class="provider-product-card">
+            <div style="display:flex;gap:10px;align-items:center">
+              <div class="provider-product-photo">${photo}</div>
+              <div style="min-width:0;flex:1">
+                <div class="pname">${esc(x.name)}</div>
+                <div class="provider-product-price">${money(x.sale_price||x.price)}${x.sale_price&&Number(x.sale_price)<Number(x.price)?` <span class="mut" style="font-size:12px;text-decoration:line-through">${money(x.price)}</span>`:''}</div>
+                <div class="provider-product-meta">${esc(pr?.business_name||'Unknown provider')} · ${esc(categoryById(x.category_id)?.name||x.business_type||'Other')} · ${x.is_available?'Available':'Unavailable'}${x.stock!=null&&x.stock!==''?' · Stock: '+esc(String(x.stock)):''}</div>
+              </div>
+            </div>
+            ${x.desc?`<div class="provider-product-meta" style="margin-top:8px">${esc(x.desc)}</div>`:''}
+            <div class="provider-product-actions">
+              <button class="chip" onclick="adminToggleProduct('${esc(x.id)}')">${x.is_available?'✔ Available':'✖ Unavailable'}</button>
+              <button class="chip" onclick="adminEditProduct('${esc(x.id)}')">✏ Edit</button>
+              <button class="chip" onclick="adminDeleteProduct('${esc(x.id)}')">🗑 Delete</button>
+            </div>
+          </div>`;
+        }).join(''):`<div class="empty"><div class="ei">📦</div><b>No products yet</b><div style="margin-top:4px">Tap <b>＋ Add Product</b> above to create the first listing.</div></div>`}
+      </div>`;
   }
   window.adminView=window.adminView||'dash';
   const __adminView=window.adminView;
@@ -2800,6 +2984,163 @@ window.adminDeletePost=function(id){
 window.adminDeleteCampaign=function(id){
   if(!U||U.role!=='admin')return toast('Admin access required.');
   S.campaigns=S.campaigns.filter(x=>x.id!==id);saveState();toast('🗑️ Campaign deleted');renderAdmin();
+};
+
+
+window.openAdminDashboardSafe=function(){
+  if(!U||U.role!=='admin'){
+    return toast('Your admin session is still active only when you are signed in as Admin.');
+  }
+  try{
+    window.adminView='dash';
+    adminView='dash';
+    return renderAdmin();
+  }catch(err){
+    console.error('Admin dashboard navigation error:',err);
+    if(U&&U.role==='admin') return toast('Could not open the Admin Dashboard. Please tap again.');
+  }
+};
+
+window.adminAddProduct=async function(){
+  if(!U||U.role!=='admin')return toast('Admin access required.');
+  const providers=(S.providers||[]).filter(x=>x.status==='approved');
+  if(!providers.length)return toast('Approve a provider before adding a product.');
+
+  openSheet(`<div class="h1">＋ Add Product</div>
+    <div class="mut" style="margin:4px 0 12px">Create a complete customer-facing listing with photo, pricing, stock and availability.</div>
+
+    <div class="sec-title"><span class="n">1</span> Provider & category</div>
+    <div class="field"><label>Provider <span class="req">*</span></label><select id="admProvider">${providers.map(x=>`<option value="${esc(x.id)}">${esc(x.business_name||x.full_name||'Provider')}</option>`).join('')}</select></div>
+    <div class="field"><label>Category</label><select id="admCat">${S.categories.map(c=>`<option value="${esc(c.id)}">${c.icon} ${esc(c.name)}</option>`).join('')}</select></div>
+
+    <div class="sec-title"><span class="n">2</span> Basic details</div>
+    <div class="field"><label>Product / service name <span class="req">*</span></label><input id="admName" maxlength="80" placeholder="e.g. Jollof Rice + Chicken"></div>
+    <div class="field"><label>Description <span class="req">*</span></label><textarea id="admDesc" maxlength="500" placeholder="What will the customer receive? Include size, portion, important details, etc."></textarea><div class="charcount">Up to 500 characters</div></div>
+
+    <div class="product-mini-grid">
+      <div class="field"><label>Price (₦) <span class="req">*</span></label><input id="admPrice" type="number" min="1" step="50" placeholder="2500"></div>
+      <div class="field"><label>Unit</label><select id="admUnit">
+        <option value="item">Per item</option><option value="plate">Per plate</option><option value="piece">Per piece</option><option value="service">Per service</option><option value="kg">Per kg</option><option value="pack">Per pack</option><option value="hour">Per hour</option>
+      </select></div>
+    </div>
+    <div class="product-mini-grid">
+      <div class="field"><label>Discounted price (optional)</label><input id="admSale" type="number" min="0" step="50" placeholder="Leave blank if no discount"></div>
+      <div class="field"><label>Stock / quantity</label><input id="admStock" type="number" min="0" step="1" placeholder="e.g. 20"></div>
+    </div>
+
+    <div class="sec-title"><span class="n">3</span> Product image</div>
+    <div class="product-upload">
+      <label class="product-upload-label" for="admPhoto">
+        <span class="product-upload-icon">📷</span>
+        <b>Upload product photo</b>
+        <span class="mut">JPG, PNG or WebP · max 8 MB</span>
+      </label>
+      <input id="admPhoto" class="product-upload-input" type="file" accept="image/jpeg,image/png,image/webp">
+      <div id="admPhotoPreview" class="product-preview"></div>
+      <button id="admPhotoRemove" type="button" class="remove-preview" style="display:none">✕ Remove photo</button>
+    </div>
+
+    <div class="sec-title"><span class="n">4</span> Selling details</div>
+    <div class="field"><label>Preparation / delivery time</label><input id="admPrep" maxlength="80" placeholder="e.g. 30–45 minutes"></div>
+    <div class="field"><label>Fallback icon</label><input id="admIcon" value="📦" maxlength="4" placeholder="📦"></div>
+    <div class="field"><label>Tags / keywords</label><input id="admTags" maxlength="200" placeholder="rice, lunch, chicken, hot"></div>
+    <label style="display:flex;gap:9px;align-items:flex-start;margin:10px 0;font-size:13px">
+      <input id="admAvailable" type="checkbox" checked style="margin-top:3px">
+      <span>Product is available for customers to order/book now.</span>
+    </label>
+    <label style="display:flex;gap:9px;align-items:flex-start;margin:10px 0;font-size:13px">
+      <input id="admConfirm" type="checkbox" style="margin-top:3px">
+      <span>I confirm the listing information and photo are accurate and approved for use on JajiGo.</span>
+    </label>
+    <button class="btn" id="admSaveProduct" style="width:100%;margin-top:6px">💾 Save Product</button>`);
+
+  let photo='';
+  const photoInput=$('#admPhoto'), preview=$('#admPhotoPreview'), remove=$('#admPhotoRemove');
+  photoInput.onchange=async()=>{
+    const file=photoInput.files?.[0];
+    if(!file)return;
+    if(file.size>8*1024*1024){photoInput.value='';return toast('Photo must be 8 MB or smaller.');}
+    try{
+      photo=await compressProviderPhoto(file);
+      preview.innerHTML=`<img src="${photo}" alt="Product preview">`;
+      preview.classList.add('show'); remove.style.display='inline-flex';
+    }catch(e){photo='';toast('Could not process that image.');}
+  };
+  remove.onclick=()=>{photo='';photoInput.value='';preview.innerHTML='';preview.classList.remove('show');remove.style.display='none'};
+
+  $('#admSaveProduct').onclick=()=>{
+    const providerId=String($('#admProvider').value||'');
+    const catId=Number($('#admCat').value);
+    const name=$('#admName').value.trim();
+    const desc=$('#admDesc').value.trim();
+    const price=Number($('#admPrice').value);
+    const saleRaw=$('#admSale').value.trim();
+    const sale=saleRaw===''?null:Number(saleRaw);
+    const stockRaw=$('#admStock').value.trim();
+    const stock=stockRaw===''?null:Number(stockRaw);
+    const prep=$('#admPrep').value.trim();
+    const icon=$('#admIcon').value.trim()||'📦';
+    const tags=$('#admTags').value.split(',').map(x=>x.trim()).filter(Boolean).slice(0,15);
+    if(!providerId)return toast('Select a provider.');
+    if(!name)return toast('Enter the product name.');
+    if(!desc)return toast('Add a product description.');
+    if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
+    if(sale!==null&&(!Number.isFinite(sale)||sale<0||sale>=price))return toast('Discounted price must be lower than the normal price.');
+    if(stock!==null&&(!Number.isFinite(stock)||stock<0))return toast('Enter a valid stock quantity.');
+    if(!$('#admConfirm').checked)return toast('Please confirm the listing details first.');
+    const provider=providerById(providerId);
+    const cat=categoryById(catId);
+    const service=isServiceCategory(cat?.name||provider?.business_type||'');
+    S.products=S.products||[];
+    S.products.unshift({
+      id:uid(),provider_id:providerId,category_id:catId,type:service?'service':'product',
+      name,desc,price,sale_price:sale,unit:$('#admUnit').value,stock,
+      prep_time:prep,is_available:$('#admAvailable').checked?1:0,icon,pop:0,
+      cat_slug:(cat?.name||'').toLowerCase().replace(/\s+/g,'-'),
+      business_type:provider?.business_type||cat?.name||'Other',photo,tags,
+      created_by_admin:true,created_at:new Date().toISOString()
+    });
+    saveState();closeSheet();toast('✅ Product added successfully');renderAdmin();
+  };
+};
+
+window.adminEditProduct=async function(id){
+  if(!U||U.role!=='admin')return toast('Admin access required.');
+  const x=S.products.find(p=>String(p.id)===String(id));
+  if(!x)return toast('Product not found.');
+  const providers=(S.providers||[]).filter(p=>p.status==='approved');
+  openSheet(`<div class="h1">✏ Edit Product</div>
+    <div class="field"><label>Provider</label><select id="aepProvider">${providers.map(p=>`<option value="${esc(p.id)}" ${String(p.id)===String(x.provider_id)?'selected':''}>${esc(p.business_name||p.full_name||'Provider')}</option>`).join('')}</select></div>
+    <div class="field"><label>Product / service name</label><input id="aepName" value="${esc(x.name||'')}" maxlength="80"></div>
+    <div class="field"><label>Description</label><textarea id="aepDesc" maxlength="500">${esc(x.desc||'')}</textarea></div>
+    <div class="product-mini-grid">
+      <div class="field"><label>Price (₦)</label><input id="aepPrice" type="number" min="1" value="${Number(x.price)||0}"></div>
+      <div class="field"><label>Discounted price</label><input id="aepSale" type="number" min="0" value="${x.sale_price==null?'':Number(x.sale_price)}"></div>
+    </div>
+    <div class="product-mini-grid">
+      <div class="field"><label>Stock</label><input id="aepStock" type="number" min="0" value="${x.stock==null?'':Number(x.stock)}"></div>
+      <div class="field"><label>Unit</label><select id="aepUnit">${['item','plate','piece','service','kg','pack','hour'].map(u=>`<option value="${u}" ${x.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Replace product photo</label><input id="aepPhoto" type="file" accept="image/jpeg,image/png,image/webp"></div>
+    <label style="display:flex;gap:9px;align-items:center;margin:10px 0"><input id="aepAvail" type="checkbox" ${x.is_available?'checked':''}> Available for customers</label>
+    <button class="btn" id="aepSave" style="width:100%">💾 Save Changes</button>`);
+  $('#aepSave').onclick=async()=>{
+    const name=$('#aepName').value.trim(),desc=$('#aepDesc').value.trim(),price=Number($('#aepPrice').value);
+    const saleRaw=$('#aepSale').value.trim(),sale=saleRaw===''?null:Number(saleRaw);
+    const stockRaw=$('#aepStock').value.trim(),stock=stockRaw===''?null:Number(stockRaw);
+    if(!name||!desc)return toast('Name and description are required.');
+    if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
+    if(sale!==null&&(!Number.isFinite(sale)||sale>=price||sale<0))return toast('Discounted price must be lower than the normal price.');
+    if(stock!==null&&(!Number.isFinite(stock)||stock<0))return toast('Enter a valid stock.');
+    const file=$('#aepPhoto').files?.[0];
+    if(file){
+      if(file.size>8*1024*1024)return toast('Photo must be 8 MB or smaller.');
+      try{x.photo=await compressProviderPhoto(file)}catch(e){return toast('Could not process that image.');}
+    }
+    x.provider_id=String($('#aepProvider').value);x.name=name;x.desc=desc;x.price=price;x.sale_price=sale;
+    x.stock=stock;x.unit=$('#aepUnit').value;x.is_available=$('#aepAvail').checked?1:0;
+    saveState();closeSheet();toast('✅ Product updated');renderAdmin();
+  };
 };
 
 window.adminToggleProduct=function(id){
@@ -3441,6 +3782,18 @@ setTimeout(()=>{if(U){window.jajigoGeminiStatus='connecting';jgGeminiCheckHealth
     pushIfChanged();
     return result;
   };
+
+  // Explicit in-app Dashboard buttons should never log a signed-in admin out.
+  document.addEventListener('click',function(e){
+    const b=e.target.closest('button');
+    if(!b||!U||U.role!=='admin')return;
+    const label=(b.textContent||'').trim().toLowerCase();
+    if(!label.includes('dashboard'))return;
+    if(window.adminView==='dash')return;
+    e.preventDefault();e.stopImmediatePropagation();
+    if(document.getElementById('sheet')?.classList.contains('open')){closeSheet();return;}
+    window.openAdminDashboardSafe?.();
+  },true);
 
   // Explicit in-app Back buttons should behave like Back, not like Log out.
   document.addEventListener('click',function(e){
