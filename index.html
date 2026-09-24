@@ -1273,8 +1273,17 @@ function photoMarkup(url,label,icon,height){
 }
 function pc(p){
   const img=photoMarkup(p.photo,p.name,p.icon,120);
-  return `<div class="pcard" onclick="closeSheet();view.product_id=${p.id};renderTab()"><div class="pimg">${img}</div><div class="pbody"><div class="pname">${esc(p.name)}</div><div class="psub">${esc(providerById(p.provider_id)?.business_name)}</div><div class="pprice">${money(p.price)}</div></div></div>`;
+  const pid=esc(String(p.id));
+  return `<div class="pcard" role="button" tabindex="0" onclick="openProduct('${pid}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openProduct('${pid}')}"><div class="pimg">${img}</div><div class="pbody"><div class="pname">${esc(p.name)}</div><div class="psub">${esc(providerById(p.provider_id)?.business_name)}</div><div class="pprice">${money(p.price)}</div></div></div>`;
 }
+window.openProduct=function(id){
+  const p=productById(id);
+  if(!p)return toast('Product not found. Please refresh and try again.');
+  closeSheet();
+  view.product_id=p.id;
+  view.provider_id=null;
+  renderTab();
+};
 function vc(prov){
   const r=recomputeRatings(prov.id);
   return `<div class="vcard" onclick="closeSheet();view.provider_id=${prov.id};renderTab()"><div class="vlogo" style="background:${esc(prov.logo_color)}">${esc(prov.logo_char)}</div><div style="flex:1;min-width:0"><div class="vname">${esc(prov.business_name)}</div><div class="vmeta">${esc(categoryById(prov.category_id)?.name||'')} · ${prov.delivery_mode==='customer_pickup'?L.pickup:L.pdelivery}</div>${r.avg?`<div>${stars(r.avg)} <span class="mut">(${r.count})</span></div>`:`<div class="mut">No reviews yet</div>`}</div></div>`;
@@ -1492,8 +1501,8 @@ function renderProduct(id){
       <div class="stepper"><button id="qM">−</button><span id="qV">1</span><button id="qP">+</button></div>
     </div>
     <button class="btn" style="margin-top:14px" id="addBtn" ${p.is_available?'':'disabled'}>🛒 ${L.add_cart} · ${money(p.price)}</button>
-    <button class="btn sm sec" style="margin-top:9px;width:auto;display:inline-block" onclick="favToggle('product',${p.id});toast('${favHas('product',p.id)?'Removed from favorites':'❤️ Added to favorites'}')">${favHas('product',p.id)?'❤️ Favorited':'🤍 Favorite'}</button>
-    <button class="btn sm warn" style="margin-top:9px;width:auto;display:inline-block" onclick="reportProduct(${p.id})">🚨 Report product</button>
+    <button class="btn sm sec" style="margin-top:9px;width:auto;display:inline-block" onclick="favToggle('product','${esc(String(p.id))}');toast('${favHas('product',p.id)?'Removed from favorites':'❤️ Added to favorites'}')">${favHas('product',p.id)?'❤️ Favorited':'🤍 Favorite'}</button>
+    <button class="btn sm warn" style="margin-top:9px;width:auto;display:inline-block" onclick="reportProduct('${esc(String(p.id))}')">🚨 Report product</button>
   </div>`;
   function updateBtn(){const tot=p.price*qty;$('#qV').textContent=qty;$('#addBtn').textContent='🛒 '+L.add_cart+' · '+money(tot)}
   $('#qM').onclick=()=>{qty=Math.max(1,qty-1);updateBtn()};
