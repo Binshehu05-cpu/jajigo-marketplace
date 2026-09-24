@@ -735,6 +735,36 @@ if(typeof S.home_banner.body!=='string')S.home_banner.body='Everything you need,
 function money(n){return '₦'+Number(n||0).toLocaleString('en-NG')}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function uid(){return Date.now().toString(36)+'-'+Math.floor(Math.random()*9999).toString(36)}
+/* ===== Delivery verification helpers (shared by customer / provider / admin) ===== */
+function jgNewVerifyCode(){try{return String(100000+(crypto.getRandomValues(new Uint32Array(1))[0]%900000))}catch(e){return String(Math.floor(100000+Math.random()*900000))}}
+function jgOrderCode(o){
+  if(!o)return '';
+  if(!/^\d{6}$/.test(String(o.verification_code||''))){
+    o.verification_code=jgNewVerifyCode();
+    if(typeof o.verification_verified!=='boolean')o.verification_verified=false;
+    if(!Object.prototype.hasOwnProperty.call(o,'verified_at'))o.verified_at=null;
+    try{saveState()}catch(e){}
+  }
+  return String(o.verification_code);
+}
+function jgFmtTime(iso){return iso?String(iso).slice(0,16).replace('T',' '):''}
+/* Customer-facing code card: visible from the moment the order is placed until it is verified. */
+function jgCodeCard(o){
+  if(!o||['cancelled','rejected'].includes(o.status))return '';
+  if(o.verification_verified)return `<div class="jg-verify-card done"><div class="jg-verify-ok" style="margin:0;justify-content:center">✅ Delivery verified${o.verified_at?' · '+esc(jgFmtTime(o.verified_at)):''}</div></div>`;
+  const msg=o.status==='delivered'
+    ?'Your provider has marked this order as delivered. Give them this code now so they can complete the order.'
+    :'Keep this code private. Give it to the provider only when you have received your order — they need it to complete the order.';
+  return `<div class="jg-verify-card"><div style="text-align:center;font-weight:850">🔐 Your 6-digit delivery code</div><div class="jg-verify-code">${esc(jgOrderCode(o))}</div><div class="jg-verify-note">${msg}</div></div>`;
+}
+/* Shown right after the customer places order(s). */
+function jgShowNewOrderCodes(list){
+  if(!list||!list.length)return;
+  openSheet(`<div class="h1">🎉 Order placed</div>
+    <div class="mut" style="margin-top:4px">Your delivery code${list.length>1?'s are':' is'} below. When your order arrives, give the code to the provider — they enter it to complete the order. You can always find it again under <b>Orders</b>.</div>
+    ${list.map(o=>`<div class="jg-verify-card"><div style="text-align:center;font-weight:850">${esc(o.business_name)} · ${esc(o.order_code)}</div><div class="jg-verify-code">${esc(jgOrderCode(o))}</div><div class="jg-verify-note">Don't share this code until you receive your order.</div></div>`).join('')}
+    <button class="btn" style="margin-top:12px" onclick="closeSheet()">Got it</button>`);
+}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2400)}
 function normPhone(phone){
   let n=String(phone||'').replace(/\D/g,'');
@@ -1623,11 +1653,11 @@ function placeOrders(modes,address,phone,pm,groups,grandSubtotal){
       provider_id:g.provider.id,business_name:g.provider.business_name,logo_char:g.provider.logo_char,logo_color:g.provider.logo_color,
       items:g.items.map(i=>({product_id:i.product.id,product_name:i.product.name,quantity:i.quantity,unit_price:i.product.price,line_total:i.product.price*i.quantity})),
       subtotal:g.subtotal,delivery_fee:df,total,rate,commission,provider_net:prov_net,status:'pending',payment_method:pm,payment_status:'pending',delivery_mode:mode,
-      verification_code:String(Math.floor(100000+Math.random()*900000)),verification_verified:false,verified_at:null,
+      verification_code:jgNewVerifyCode(),verification_verified:false,verified_at:null,
       address:mode==='customer_pickup'?null:address,created_at:now};
     S.orders.unshift(order);created.push(order);notify('prov',g.provider.id,'🧾 New order '+code,`${g.provider.business_name} · ${money(total)}`,'new_order',order.id);
   });
-  S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' · '+created.length+' order'+(created.length===1?'':'s'));
+  S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' · '+created.length+' order'+(created.length===1?'':'s'));jgShowNewOrderCodes(created);
 }
 // Backward-compatible alias for any existing UI calls.
 function placeOrder(mode,address,phone,pm,items,subtotal,df,total){const groups=groupCartByProvider(items);placeOrders(groups.map(()=>mode),address,phone,pm,groups,subtotal)}
@@ -1639,9 +1669,9 @@ function renderOrders(app){
   mine.map(o=>{
     const cls={pending:'amber',accepted:'',preparing:'',ready:'',on_the_way:'',delivered:'',completed:'',cancelled:'red',rejected:'red'}[o.status]||'';
     const stepIdx=['pending','accepted','preparing','ready','on_the_way','delivered','completed'].indexOf(o.status);
-    const verifyReady=o.status==='delivered'&&!o.verification_verified?`<div class="jg-verify-ok" style="margin-top:9px">🔐 Your delivery code is ready — tap this order to view your 6-digit code.</div>`:'';
+    const verifyReady=['cancelled','rejected'].includes(o.status)?'':(o.verification_verified?`<div class="jg-verify-mini done">✅ Delivery verified</div>`:`<div class="jg-verify-mini">🔐 Delivery code <b>${esc(jgOrderCode(o))}</b><span>${o.status==='delivered'?' · give it to the provider now':' · share only when you receive your order'}</span></div>`);
     const bar=o.status==='cancelled'||o.status==='rejected'?'':`<div class="statusbar">${[0,1,2,3,4,5,6].map(i=>`<div class="${i<=stepIdx?'on':''}"></div>`).join('')}</div>`;
-    return `<div class="card" onclick="openOrder('${o.id}')"><div class="row"><div style="display:flex;gap:9px;align-items:center"><span style="font-size:22px">${esc(o.logo_char)}</span><div><div class="pname">${esc(o.business_name)}</div><div class="mut">${esc(o.order_code)} · ${(o.created_at||'').slice(0,10)}</div></div></div><span class="pill ${cls}">${esc(L[o.status.replace(/_/g,'')]||o.status)}</span></div>${bar}<div class="row" style="margin-top:6px"><span class="mut">${o.payment_method==='cash_on_delivery'?L.cod:L.bank}</span><b style="color:var(--g)">${money(o.total)}</b></div></div>`
+    return `<div class="card" onclick="openOrder('${o.id}')"><div class="row"><div style="display:flex;gap:9px;align-items:center"><span style="font-size:22px">${esc(o.logo_char)}</span><div><div class="pname">${esc(o.business_name)}</div><div class="mut">${esc(o.order_code)} · ${(o.created_at||'').slice(0,10)}</div></div></div><span class="pill ${cls}">${esc(L[o.status.replace(/_/g,'')]||o.status)}</span></div>${bar}<div class="row" style="margin-top:6px"><span class="mut">${o.payment_method==='cash_on_delivery'?L.cod:L.bank}</span><b style="color:var(--g)">${money(o.total)}</b></div>${verifyReady}</div>`
   }).join('')+'</div>';
 }
 function openOrder(id){
@@ -1652,6 +1682,7 @@ function openOrder(id){
   openSheet(`
   <div class="h1">${esc(o.order_code)}</div>
   <span class="pill" style="margin-top:6px">${esc(L[o.status.replace(/_/g,'')]||o.status)}</span>
+  ${jgCodeCard(o)}
   <div class="card" style="margin-top:10px">
     ${items.map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product_name)} ×${i.quantity}</span><b>${money(i.line_total)}</b></div>`).join('')}
     <div class="total-row"><span>${L.del_fee}</span><b>${money(o.delivery_fee)}</b></div>
@@ -2268,9 +2299,11 @@ function renderProvider(){
     <h2 class="sec" style="margin-top:6px">🧾 Orders (${list.length})</h2>
     <div style="display:flex;flex-direction:column;gap:9px">${list.map(o=>{
       const cls={cancelled:'red',rejected:'red',pending:'amber',completed:''}[o.status]||'';
-      const nextBtns={pending:[['accepted','✔ Accept'],['rejected','✖ Reject']],accepted:[['preparing','🍳 Preparing']],preparing:[['ready','✔ Ready']],ready:[['on_the_way','🛵 On the Way'],['delivered','✅ Delivered']],on_the_way:[['delivered','✅ Delivered']],delivered:[['completed','✅ Complete']]}[o.status]||[];
+      const nextBtns={pending:[['accepted','✔ Accept'],['rejected','✖ Reject']],accepted:[['preparing','🍳 Preparing']],preparing:[['ready','✔ Ready']],ready:[['on_the_way','🛵 On the Way'],['delivered','✅ Delivered']],on_the_way:[['delivered','✅ Delivered']],delivered:[['completed','🔐 Verify & Complete']]}[o.status]||[];
       return `<div class="card"><div class="row"><div><div class="pname">${esc(o.order_code)}</div><div class="mut">${esc(o.customer_name)} · ${esc(o.customer_phone||'')} · ${money(o.total)}</div><div class="mut">${o.address?`📍 ${esc(o.address)}`:''}${o.delivery_mode==='customer_pickup'?' · Pickup':''}</div></div><span class="pill ${cls}">${o.status.replace(/_/g,' ')}</span></div>
-        ${nextBtns.length?`<div class="chips" style="margin-top:9px">${nextBtns.map(b=>`<button class="chip ${b[0]==='rejected'?'':'on'}" onclick="provSetStatus('${o.id}','${b[0]}')">${b[1]}</button>`).join('')}</div>`:''}</div>`}).join(' ')}</div>`;
+        ${nextBtns.length?`<div class="chips" style="margin-top:9px">${nextBtns.map(b=>`<button class="chip ${b[0]==='rejected'?'':'on'}" onclick="provSetStatus('${o.id}','${b[0]}')">${b[1]}</button>`).join('')}</div>`:''}
+        ${o.status==='delivered'&&!o.verification_verified?`<div class="mut" style="margin-top:8px;font-size:12.5px">🔐 Ask the customer for the 6-digit code from their order screen, then tap <b>Verify & Complete</b>.</div>`:''}
+        ${o.status==='completed'&&o.verification_verified?`<div class="jg-verify-ok" style="margin-top:9px">🔐 Customer verified${o.verified_at?' · '+esc(jgFmtTime(o.verified_at)):''}</div>`:''}</div>`}).join(' ')}</div>`;
   }
   function paintProducts(){
     const list=S.products.filter(x=>x.provider_id===p.id);
@@ -2667,6 +2700,35 @@ window.provReplyComplaint=function(id){
 /* ====================================================================
    ADMIN APP
    ====================================================================*/
+window.jgFilterAdminOrders=function(q){
+  q=String(q||'').toLowerCase().trim();
+  document.querySelectorAll('#adOrdTbl tr.jg-ord-row').forEach(tr=>{tr.style.display=!q||tr.textContent.toLowerCase().includes(q)?'':'none'});
+};
+window.adminOrderDetail=function(id){
+  if(!U||U.role!=='admin')return;
+  const o=S.orders.find(x=>String(x.id)===String(id));if(!o)return toast('Order not found.');
+  const code=jgOrderCode(o),inactive=['cancelled','rejected'].includes(o.status);
+  openSheet(`<div class="h1">${esc(o.order_code)}</div>
+    <span class="pill ${inactive?'red':''}" style="margin-top:6px">${esc(String(o.status).replace(/_/g,' '))}</span>
+    <div class="jg-verify-card ${o.verification_verified?'done':''}">
+      <div style="text-align:center;font-weight:850">🔐 Delivery verification code</div>
+      <div class="jg-verify-code">${esc(code)}</div>
+      <div class="jg-verify-note">${o.verification_verified?`✅ Verified by provider${o.verified_at?' on '+esc(jgFmtTime(o.verified_at)):''}. Order completed.`:(inactive?'This order was '+esc(o.status)+'. No delivery verification needed.':'⏳ Awaiting: customer gives this code to the provider after delivery.')}</div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="row"><span>Customer</span><b>${esc(o.customer_name||'—')}</b></div>
+      <div class="row"><span>Phone</span><b>${esc(o.customer_phone||'—')}</b></div>
+      <div class="row"><span>Provider</span><b>${esc(o.business_name||'—')}</b></div>
+      <div class="row"><span>Mode</span><b>${o.delivery_mode==='customer_pickup'?'Pickup':'Provider delivery'}</b></div>
+      ${o.address?`<div class="row"><span>Address</span><b style="text-align:right">${esc(o.address)}</b></div>`:''}
+      <div class="row"><span>Placed</span><b>${esc(jgFmtTime(o.created_at)||'—')}</b></div>
+      <div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px">${(o.items||[]).map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product_name)} ×${i.quantity}</span><b>${money(i.line_total)}</b></div>`).join('')}</div>
+      <div class="total-row"><span>Delivery</span><b>${money(o.delivery_fee)}</b></div>
+      <div class="total-row big"><span>Total</span><span style="color:var(--g)">${money(o.total)}</span></div>
+      <div class="row" style="margin-top:4px"><span>Commission</span><b>${money(o.commission||0)}</b></div>
+    </div>
+    <button class="btn sec" style="margin-top:10px" onclick="closeSheet()">Close</button>`);
+};
 async function renderAdmin(){
   if(!U||U.role!='admin')return showAuth();
   $('#hdr').style.display='block';$('#tabs').style.display='none';
@@ -2707,7 +2769,7 @@ async function renderAdmin(){
       <button class="btn warn" onclick="logout()">Log out</button>
     </div>
     <h2 class="sec">Recent orders</h2>
-    ${recent.map(o=>`<div class="card" style="margin-bottom:7px"><div class="row"><div><b>${esc(o.order_code)}</b> · ${money(o.total)}<div class="mut">${esc(o.business_name)} · ${(o.created_at||'').slice(0,10)}</div></div><span class="pill ${['cancelled','rejected'].includes(o.status)?'red':''}">${o.status}</span></div></div>`).join('')||'<div class="mut">No orders yet</div>'}`;
+    ${recent.map(o=>`<div class="card" style="margin-bottom:7px"><div class="row"><div><b>${esc(o.order_code)}</b> · ${money(o.total)}<div class="mut">${esc(o.business_name)} · ${(o.created_at||'').slice(0,10)}</div><div class="jg-admin-code">🔐 ${esc(jgOrderCode(o))} ${o.verification_verified?'<span class="ok">✅ verified</span>':'<span class="wait">awaiting</span>'}</div></div><span class="pill ${['cancelled','rejected'].includes(o.status)?'red':''}">${o.status}</span></div></div>`).join('')||'<div class="mut">No orders yet</div>'}`;
   }
   function paintAppr(){
     $('#app').innerHTML=`<button class="btn sm sec" onclick="adminView='dash';renderAdmin()">← Dashboard</button>
@@ -2729,7 +2791,9 @@ async function renderAdmin(){
   function paintOrders(){
     $('#app').innerHTML=`<button class="btn sm sec" onclick="adminView='dash';renderAdmin()">← Dashboard</button>
     <h2 class="sec">🧾 All Orders</h2>
-    <table class="tbl"><tr><th>Code</th><th>Business</th><th>Customer</th><th>Total</th><th>Comm.</th><th>Status</th></tr>${S.orders.map(o=>`<tr><td>${esc(o.order_code)}</td><td>${esc(o.business_name)}</td><td>${esc(o.customer_name)}</td><td>${money(o.total)}</td><td>${money(o.commission||0)}</td><td>${o.status}</td></tr>`).join('')||'<tr><td colspan="6" class="mut">No orders</td></tr>'}</table>`;
+    <div class="mut" style="margin-bottom:8px;font-size:12.5px">Tap an order to see its full details and delivery verification code.</div>
+    <input id="adOrdQ" class="jg-admin-search" placeholder="Search code, customer, business…" oninput="jgFilterAdminOrders(this.value)">
+    <div style="overflow-x:auto"><table class="tbl" id="adOrdTbl"><tr><th>Order</th><th>Verif. code</th><th>Business</th><th>Customer</th><th>Total</th><th>Comm.</th><th>Status</th></tr>${S.orders.map(o=>`<tr class="jg-ord-row" onclick="adminOrderDetail('${esc(o.id)}')" style="cursor:pointer"><td>${esc(o.order_code)}</td><td><b class="jg-tbl-code">${esc(jgOrderCode(o))}</b><div class="mut" style="font-size:11px">${o.verification_verified?'✅ verified':(['cancelled','rejected'].includes(o.status)?'—':'⏳ pending')}</div></td><td>${esc(o.business_name)}</td><td>${esc(o.customer_name)}</td><td>${money(o.total)}</td><td>${money(o.commission||0)}</td><td>${o.status}</td></tr>`).join('')||'<tr><td colspan="7" class="mut">No orders</td></tr>'}</table></div>`;
   }
   function paintUsers(){
     $('#app').innerHTML=`<button class="btn sm sec" onclick="adminView='dash';renderAdmin()">← Dashboard</button>
@@ -3278,7 +3342,7 @@ function jgCouponValid(c,subtotal,provider_id){
   return true;
 }
 function jgDiscount(c,subtotal){let v=c.discount_type==='percent'?subtotal*Number(c.discount_value||0)/100:Number(c.discount_value||0);return Math.max(0,Math.min(Math.round(v),subtotal));}
-function jgNotifyOrder(o,status){const map={accepted:['✅ Order accepted','Your provider accepted your order.'],rejected:['❌ Order rejected','Your provider could not accept this order.'],ready:['📦 Order ready','Your order is ready.'],on_the_way:['🛵 Order on the way','Your order is on the way.'],delivered:['📍 Order delivered','Your order has been delivered.'],completed:['⭐ Order completed','Please rate your experience.']};const x=map[status];if(x)notify('cust',o.customer_id,x[0]+' · '+o.order_code,x[1],'order_status',o.id);}
+function jgNotifyOrder(o,status){const map={accepted:['✅ Order accepted','Your provider accepted your order.'],rejected:['❌ Order rejected','Your provider could not accept this order.'],ready:['📦 Order ready','Your order is ready.'],on_the_way:['🛵 Order on the way','Your order is on the way.'],delivered:['📍 Order delivered','Open your order and give your 6-digit code to the provider to complete it.'],completed:['⭐ Order completed','Please rate your experience.']};const x=map[status];if(x)notify('cust',o.customer_id,x[0]+' · '+o.order_code,x[1],'order_status',o.id);}
 window.provSetStatus=function(oid,next){
  if(!U||U.role!=='provider')return toast('Provider access required.');const o=S.orders.find(x=>x.id===oid);if(!o||o.provider_id!==U.user.id)return toast('Order not found.');
  const ok={pending:['accepted','rejected'],accepted:['preparing'],preparing:['ready'],ready:['on_the_way','delivered'],on_the_way:['delivered'],delivered:['completed']};if(!(ok[o.status]||[]).includes(next))return toast('Cannot change this order status.');
@@ -4103,6 +4167,17 @@ nav.tabs button.on .ti{
 .jg-verify-code{font-size:30px;letter-spacing:7px;font-weight:950;text-align:center;color:#166534;margin:8px 0}
 .jg-verify-note{font-size:12px;line-height:1.45;color:#52615a;text-align:center}
 .jg-verify-ok{display:flex;align-items:center;gap:8px;padding:10px;border-radius:12px;background:#ecfdf5;color:#166534;font-weight:800;margin-top:10px}
+.jg-verify-card.done{background:#ecfdf5;border-color:#86efac}
+.jg-verify-mini{margin-top:9px;padding:9px 11px;border-radius:12px;background:#f0fdf4;border:1px dashed #86efac;color:#166534;font-size:13px;line-height:1.4}
+.jg-verify-mini b{font-size:16px;letter-spacing:3px}
+.jg-verify-mini span{color:#52615a;font-size:12px}
+.jg-verify-mini.done{border-style:solid;font-weight:800}
+.jg-admin-code{margin-top:4px;font-size:13px;font-weight:800;color:#166534;letter-spacing:1px}
+.jg-admin-code .ok{font-size:11.5px;letter-spacing:0;color:#166534}
+.jg-admin-code .wait{font-size:11.5px;letter-spacing:0;color:#b45309}
+.jg-admin-search{width:100%;height:42px;border:1.5px solid var(--line);border-radius:12px;padding:0 12px;font-size:14px;margin-bottom:8px;background:#fff}
+.jg-tbl-code{letter-spacing:1.5px;color:#166534}
+.jg-ord-row:active{background:#f0fdf4}
 </style>
 <script id="jajigo-delivery-verification-v1-script">
 (function(){
@@ -4115,32 +4190,8 @@ nav.tabs button.on .ti{
   (S.orders||[]).forEach(ensureVerification);
   saveState();
 
-  // Customer order detail: show the code once the provider marks the order delivered.
-  // The code is generated when the order is created, but is intentionally revealed
-  // to the customer only at delivery so it can be used to confirm receipt.
-  const oldOpenOrder=window.openOrder;
-  window.openOrder=function(id){
-    const o=S.orders.find(x=>x.id===id); if(!o)return;
-    ensureVerification(o); saveState();
-    if(o.status==='delivered' && !o.verification_verified){
-      openSheet(`
-        <div class="h1">🔐 Delivery verification</div>
-        <div class="mut" style="margin-top:4px">Your order has been marked as delivered. Show this code to the provider to confirm that you received the order.</div>
-        <div class="jg-verify-card">
-          <div style="text-align:center;font-weight:850">Your 6-digit verification code</div>
-          <div class="jg-verify-code">${esc(o.verification_code)}</div>
-          <div class="jg-verify-note">Keep this code private until you receive the order. The provider needs it to complete this order.</div>
-        </div>
-        <div class="card" style="margin-top:10px">
-          <div class="row"><span>Order</span><b>${esc(o.order_code)}</b></div>
-          <div class="row"><span>Provider</span><b>${esc(o.business_name)}</b></div>
-          <div class="row"><span>Total</span><b>${money(o.total)}</b></div>
-        </div>
-        <button class="btn sec" style="margin-top:10px" onclick="closeSheet()">Done</button>`);
-      return;
-    }
-    return oldOpenOrder(id);
-  };
+  // NOTE: the customer's 6-digit code is now shown from the moment the order is placed
+  // (see jgCodeCard / jgShowNewOrderCodes / openOrder), so no openOrder override is needed here.
 
   // Provider completion is now protected by the customer's 6-digit code.
   window.provSetStatus=function(oid,next){
