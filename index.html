@@ -1513,14 +1513,10 @@ function renderProduct(id){
 function addToCart(pid,qty){
   if(!U||U.role!=='customer')return;
   if(!S.cart_items)S.cart_items=[];
-  // One-provider-per-cart rule (v1 marketplace)
-  const existing=S.cart_items.find(ci=>ci.cart_id===U.user.id&&productById(ci.product_id)?.provider_id===productById(pid)?.provider_id);
-  if(!existing&&S.cart_items.some(ci=>ci.cart_id===U.user.id)){
-    S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);
-    toast('🛒 Cart switched to this provider.');
-  }
+  // Multi-provider cart: products from different providers can coexist.
   const cur=S.cart_items.find(ci=>ci.cart_id===U.user.id&&ci.product_id===pid);
-  if(cur)cur.quantity+=qty;else S.cart_items.push({id:uid(),cart_id:U.user.id,product_id:pid,quantity:qty});
+  if(cur)cur.quantity=Math.min(99,cur.quantity+qty);
+  else S.cart_items.push({id:uid(),cart_id:U.user.id,product_id:pid,quantity:Math.min(99,qty)});
   saveState();updateBadges();
 }
 function getCartItems(){
@@ -1531,7 +1527,16 @@ function getCartItems(){
   }).filter(x=>x.product&&x.provider);
 }
 function cartSubtotal(){return getCartItems().reduce((s,i)=>s+i.product.price*i.quantity,0)}
-function cartTotalDelivery(){const items=getCartItems();return items.length?items[0].delivery_fee:0}
+function groupCartByProvider(items){
+  const groups=[];const map=new Map();
+  items.forEach(i=>{
+    const key=String(i.provider.id);
+    if(!map.has(key)){const g={provider:i.provider,items:[],subtotal:0,delivery_fee:Number(i.provider.delivery_fee||0)};map.set(key,g);groups.push(g)}
+    const g=map.get(key);g.items.push(i);g.subtotal+=i.product.price*i.quantity;
+  });
+  return groups;
+}
+function cartTotalDelivery(){return groupCartByProvider(getCartItems()).reduce((s,g)=>s+g.delivery_fee,0)}
 
 function renderCart(app){
   const items=getCartItems();
@@ -1539,102 +1544,93 @@ function renderCart(app){
     app.innerHTML=`<div class="empty"><div class="ei">🛒</div>${L.empty_cart}</div><button class="btn sec" onclick="view.tab='home';renderTab()">🏠 ${L.home}</button>`;
     return;
   }
-  const subtotal=cartSubtotal(),delivery_fee=cartTotalDelivery(),total=subtotal+delivery_fee;
+  const groups=groupCartByProvider(items),subtotal=cartSubtotal(),delivery=cartTotalDelivery(),total=subtotal+delivery;
   app.innerHTML=`
   <h2 class="sec" style="margin-top:4px">🛒 ${L.cart}</h2>
-  <div class="mut" style="margin-bottom:8px">${esc(items[0].provider.business_name)}</div>
-  ${items.map(i=>`<div class="card" style="margin-bottom:9px"><div class="row">
-    <div style="display:flex;gap:10px;align-items:center;flex:1;min-width:0">
-      <div style="font-size:24px">${esc(i.product.icon)}</div>
-      <div style="min-width:0"><div class="pname">${esc(i.product.name)}</div><div class="mut">${money(i.product.price)}</div></div>
-    </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-      <div class="stepper"><button onclick="cartQty('${i.id}',${i.quantity-1})">−</button><span>${i.quantity}</span><button onclick="cartQty('${i.id}',${i.quantity+1})">+</button></div>
-      <div class="pprice">${money(i.product.price*i.quantity)}</div>
-    </div></div></div>`).join('')}
+  <div class="mut" style="margin-bottom:10px">${groups.length} provider${groups.length===1?'':'s'} · ${items.reduce((s,i)=>s+i.quantity,0)} item${items.reduce((s,i)=>s+i.quantity,0)===1?'':'s'}</div>
+  ${groups.map(g=>`<div class="card" style="margin-bottom:10px;border-left:4px solid var(--g)">
+    <div class="row"><div><div class="pname">🏪 ${esc(g.provider.business_name)}</div><div class="mut">${g.items.length} product${g.items.length===1?'':'s'}</div></div><b>${money(g.subtotal)}</b></div>
+    ${g.items.map(i=>`<div class="row" style="padding:9px 0;border-top:1px solid var(--line)">
+      <div style="display:flex;gap:10px;align-items:center;flex:1;min-width:0"><div style="font-size:24px">${esc(i.product.icon)}</div><div style="min-width:0"><div class="pname">${esc(i.product.name)}</div><div class="mut">${money(i.product.price)} each</div></div></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><div class="stepper"><button onclick="cartQty('${i.id}',${i.quantity-1})">−</button><span>${i.quantity}</span><button onclick="cartQty('${i.id}',${i.quantity+1})">+</button></div><div class="pprice">${money(i.product.price*i.quantity)}</div></div>
+    </div>`).join('')}
+    <div class="mut" style="padding-top:7px">Delivery: ${money(g.delivery_fee)} · verification code will be separate</div>
+  </div>`).join('')}
   <div class="card" style="margin-top:8px">
     <div class="total-row"><span>${L.subtotal}</span><b>${money(subtotal)}</b></div>
-    <div class="total-row"><span>${L.del_fee}</span><b>${money(delivery_fee)}</b></div>
+    <div class="total-row"><span>${L.del_fee}</span><b>${money(delivery)}</b></div>
     <div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div>
   </div>
   <button class="btn" style="margin-top:12px" onclick="openCheckout(true)">${L.checkout} →</button>`;
 }
 window.cartQty=function(id,qty){
-  const ci=S.cart_items.find(x=>x.id===id);
-  if(!ci)return;
-  if(qty<=0)S.cart_items=S.cart_items.filter(x=>x.id!==id);
-  else ci.quantity=Math.min(99,qty);
+  const ci=S.cart_items.find(x=>x.id===id);if(!ci)return;
+  if(qty<=0)S.cart_items=S.cart_items.filter(x=>x.id!==id);else ci.quantity=Math.min(99,qty);
   saveState();updateBadges();renderTab();
 }
 
 function openCheckout(confirmedFirst){
   const items=getCartItems();if(!items.length)return toast(L.empty_cart);
-  const subtotal=cartSubtotal(),df=cartTotalDelivery(),total=subtotal+df;
-  const prov=items[0].provider;
-  const myProfile=S.customers.find(c=>c.id===U.user.id);
-  const cfg={gateway_available:false};
+  const groups=groupCartByProvider(items),subtotal=cartSubtotal();
+  const myProfile=S.customers.find(c=>c.id===U.user.id),cfg={gateway_available:false};
+  const initialDelivery=groups.reduce((s,g)=>s+g.delivery_fee,0),initialTotal=subtotal+initialDelivery;
   const html=`
   <div class="h1">${L.checkout}</div>
-  <div class="card" style="margin-top:10px">
-    ${items.map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product.name)} ×${i.quantity}</span><b>${money(i.product.price*i.quantity)}</b></div>`).join('')}
-    <div class="total-row"><span>${L.del_fee}</span><b>${money(df)}</b></div>
-    <div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div>
-  </div>
-  <div class="field" style="margin-top:10px"><label>Mode</label>
-    <select id="cMode">
-      ${prov.delivery_mode==='provider_delivery'||prov.delivery_mode==='both'?`<option value="provider_delivery">${L.pdelivery} (${money(df)})</option>`:''}
-      ${prov.delivery_mode==='customer_pickup'||prov.delivery_mode==='both'?`<option value="customer_pickup">${L.pickup}</option>`:''}
+  <div class="mut" style="margin-top:4px">One checkout · ${groups.length} separate provider order${groups.length===1?'':'s'}</div>
+  ${groups.map((g,idx)=>`<div class="card" style="margin-top:10px;border-left:4px solid var(--g)">
+    <div class="row"><div><div class="pname">🏪 ${esc(g.provider.business_name)}</div><div class="mut">${g.items.map(i=>esc(i.product.name)+' ×'+i.quantity).join(' · ')}</div></div><b>${money(g.subtotal)}</b></div>
+    <div class="field" style="margin-top:9px"><label>Delivery method</label><select id="cMode_${idx}" data-provider-index="${idx}">
+      ${g.provider.delivery_mode==='provider_delivery'||g.provider.delivery_mode==='both'?`<option value="provider_delivery">${L.pdelivery} (${money(g.delivery_fee)})</option>`:''}
+      ${g.provider.delivery_mode==='customer_pickup'||g.provider.delivery_mode==='both'?`<option value="customer_pickup">${L.pickup}</option>`:''}
     </select></div>
-  <div class="field" id="addrWrap"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div>
+  </div>`).join('')}
+  <div class="field" style="margin-top:10px"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div>
   <div class="field"><label>${L.phone_lbl}</label><input id="cPhone" type="tel" value="${esc(myProfile?.phone||'')}"></div>
-  <div class="field"><label>${L.pay_with}</label>
-    <select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option>${cfg.gateway_available?'':`<option value="card" disabled>💳 ${L.gateway}</option>`}</select>
+  <div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option>${cfg.gateway_available?'':`<option value="card" disabled>💳 ${L.gateway}</option>`}</select>
     ${cfg.gateway_available?'':`<div class="mut" style="font-size:12px;margin-top:5px">ℹ️ ${L.gateway_note}</div>`}</div>
-  <div class="mut" style="font-size:12px;margin-top:-2px;margin-bottom:8px">${esc(S.bank_details||'')}</div>
-  <button class="btn" id="cGo">👉 ${L.confirm_order} · ${money(total)}</button>`;
+  <div class="mut" style="font-size:12px;margin-bottom:8px">${esc(S.bank_details||'')}</div>
+  <div class="card" style="margin-top:8px"><div class="total-row"><span>${L.subtotal}</span><b id="cSub">${money(subtotal)}</b></div><div class="total-row"><span>${L.del_fee}</span><b id="cDf">${money(initialDelivery)}</b></div><div class="total-row big"><span>${L.total}</span><span id="cTotal" style="color:var(--g)">${money(initialTotal)}</span></div></div>
+  <button class="btn" id="cGo" style="margin-top:12px">👉 ${L.confirm_order} · <span id="cGoTotal">${money(initialTotal)}</span></button>`;
   openSheet(html);
-  function refreshAddr(){const m=$('#cMode').value;if(m==='customer_pickup'){$('#addrWrap').style.display='none'}else{$('#addrWrap').style.display='block'}}
-  $('#cMode').onchange=refreshAddr;refreshAddr();
+  function calc(){
+    let df=0;groups.forEach((g,i)=>{const el=$('#cMode_'+i);if(el&&el.value==='provider_delivery')df+=g.delivery_fee});
+    const total=subtotal+df;$('#cDf').textContent=money(df);$('#cTotal').textContent=money(total);$('#cGoTotal').textContent=money(total);return{df,total};
+  }
+  groups.forEach((g,i)=>{const el=$('#cMode_'+i);if(el)el.onchange=calc});
+  calc();
   $('#cGo').onclick=()=>{
-    const mode=$('#cMode').value,pm=$('#cPay').value;
-    const address=$('#cAddr').value.trim();const phone=$('#cPhone').value.trim();
-    if(mode==='provider_delivery'&&!address)return toast(L.need_addr);
+    const phone=$('#cPhone').value.trim(),address=$('#cAddr').value.trim(),pm=$('#cPay').value;
     if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);
+    const modes=groups.map((g,i)=>$('#cMode_'+i)?.value||'customer_pickup');
+    if(modes.some(m=>m==='provider_delivery')&&!address)return toast(L.need_addr);
     if(pm==='card')return toast(L.gateway_note);
-    openSheet(`<div class="h1">${L.confirm_order}</div>
-    <div class="card" style="margin-top:10px">
-      <div class="row" style="padding:4px 0"><span>${L.items}</span><b>${items.reduce((s,i)=>s+i.quantity,0)} ×</b></div>
-      <div class="row" style="padding:4px 0"><span>${mode==='customer_pickup'?L.pickup:L.addr_lbl}</span><b>${mode==='customer_pickup'?'—':esc(address)}</b></div>
-      <div class="row" style="padding:4px 0"><span>📞</span><b>${esc(phone)}</b></div>
-      <div class="row" style="padding:4px 0"><span>${L.pay_with}</span><b>${pm==='cash_on_delivery'?L.cod:L.bank}</b></div>
-      <div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div>
-    </div>
-    <button class="btn" style="margin-top:14px" id="cFinal">✅ ${L.confirm_order}</button>
-    <button class="btn sec" style="margin-top:8px" onclick="openCheckout(true)">← Edit</button>`);
-    $('#cFinal').onclick=()=>placeOrder(mode,address,phone,pm,items,subtotal,df,total);
+    const sums=calc();
+    openSheet(`<div class="h1">${L.confirm_order}</div><div class="mut" style="margin-top:4px">${groups.length} provider order${groups.length===1?'':'s'} will be created.</div>
+      <div class="card" style="margin-top:10px">${groups.map((g,i)=>`<div class="row" style="padding:7px 0;border-bottom:1px solid var(--line)"><span>🏪 ${esc(g.provider.business_name)}<br><small class="mut">${modes[i]==='customer_pickup'?L.pickup:L.pdelivery}</small></span><b>${money(g.subtotal+(modes[i]==='provider_delivery'?g.delivery_fee:0))}</b></div>`).join('')}
+      <div class="row" style="padding:7px 0"><span>📞</span><b>${esc(phone)}</b></div><div class="row" style="padding:7px 0"><span>${L.pay_with}</span><b>${pm==='cash_on_delivery'?L.cod:L.bank}</b></div><div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(sums.total)}</span></div></div>
+      <button class="btn" style="margin-top:14px" id="cFinal">✅ ${L.confirm_order}</button><button class="btn sec" style="margin-top:8px" onclick="openCheckout(true)">← Edit</button>`);
+    $('#cFinal').onclick=()=>placeOrders(modes,address,phone,pm,groups,subtotal);
   };
 }
-function placeOrder(mode,address,phone,pm,items,subtotal,df,total){
-  const rate=S.comm_rate||10;
-  const comm_on_deliv=S.comm_on_delivery==='1';
-  const comm_base=comm_on_deliv?total:subtotal;
-  const commission=Math.round(comm_base*rate/100);
-  const prov_net=total-commission;
-  const code='JG-'+uid().slice(0,8).toUpperCase();
-  const order={
-    id:uid(),order_code:code,customer_id:U.user.id,customer_name:U.user.full_name,customer_phone:phone,
-    provider_id:items[0].provider.id,business_name:items[0].provider.business_name,logo_char:items[0].provider.logo_char,logo_color:items[0].provider.logo_color,
-    items:items.map(i=>({product_id:i.product.id,product_name:i.product.name,quantity:i.quantity,unit_price:i.product.price,line_total:i.product.price*i.quantity})),
-    subtotal,delivery_fee:df,total,rate,commission,provider_net:prov_net,
-    status:'pending',payment_method:pm,payment_status:'pending',delivery_mode:mode,
-    address:mode==='customer_pickup'?null:address,created_at:new Date().toISOString()
-  };
-  S.orders.unshift(order);
-  S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);
-  notify('prov',items[0].provider.id,'🧾 New order '+code,`${items[0].provider.business_name} · ${money(total)}`,'new_order',order.id);
-  saveState();updateBadges();
-  closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' '+code);
+function placeOrders(modes,address,phone,pm,groups,grandSubtotal){
+  const rate=S.comm_rate||10,comm_on_deliv=S.comm_on_delivery==='1',now=new Date().toISOString();
+  const created=[];
+  groups.forEach((g,idx)=>{
+    const mode=modes[idx]||'customer_pickup',df=mode==='provider_delivery'?Number(g.delivery_fee||0):0,total=g.subtotal+df;
+    const comm_base=comm_on_deliv?total:g.subtotal,commission=Math.round(comm_base*rate/100),prov_net=total-commission;
+    const code='JG-'+uid().slice(0,8).toUpperCase();
+    const order={id:uid(),order_code:code,customer_id:U.user.id,customer_name:U.user.full_name,customer_phone:phone,
+      provider_id:g.provider.id,business_name:g.provider.business_name,logo_char:g.provider.logo_char,logo_color:g.provider.logo_color,
+      items:g.items.map(i=>({product_id:i.product.id,product_name:i.product.name,quantity:i.quantity,unit_price:i.product.price,line_total:i.product.price*i.quantity})),
+      subtotal:g.subtotal,delivery_fee:df,total,rate,commission,provider_net:prov_net,status:'pending',payment_method:pm,payment_status:'pending',delivery_mode:mode,
+      verification_code:String(Math.floor(100000+Math.random()*900000)),verification_verified:false,verified_at:null,
+      address:mode==='customer_pickup'?null:address,created_at:now};
+    S.orders.unshift(order);created.push(order);notify('prov',g.provider.id,'🧾 New order '+code,`${g.provider.business_name} · ${money(total)}`,'new_order',order.id);
+  });
+  S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' · '+created.length+' order'+(created.length===1?'':'s'));
 }
+// Backward-compatible alias for any existing UI calls.
+function placeOrder(mode,address,phone,pm,items,subtotal,df,total){const groups=groupCartByProvider(items);placeOrders(groups.map(()=>mode),address,phone,pm,groups,subtotal)}
 
 function renderOrders(app){
   const mine=S.orders.filter(o=>o.customer_id===U.user.id);
@@ -4098,5 +4094,131 @@ nav.tabs button.on .ti{
   sync();
 })();
 </script>
+
+
+<!-- JajiGo customer delivery verification v1 -->
+<style id="jajigo-delivery-verification-v1">
+.jg-verify-card{margin-top:10px;padding:14px;border-radius:16px;background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #bbf7d0}
+.jg-verify-code{font-size:30px;letter-spacing:7px;font-weight:950;text-align:center;color:#166534;margin:8px 0}
+.jg-verify-note{font-size:12px;line-height:1.45;color:#52615a;text-align:center}
+.jg-verify-ok{display:flex;align-items:center;gap:8px;padding:10px;border-radius:12px;background:#ecfdf5;color:#166534;font-weight:800;margin-top:10px}
+</style>
+<script id="jajigo-delivery-verification-v1-script">
+(function(){
+  function ensureVerification(o){
+    if(!o)return;
+    if(!o.verification_code)o.verification_code=String(Math.floor(100000+Math.random()*900000));
+    if(typeof o.verification_verified!=='boolean')o.verification_verified=false;
+    if(!Object.prototype.hasOwnProperty.call(o,'verified_at'))o.verified_at=null;
+  }
+  (S.orders||[]).forEach(ensureVerification);
+  saveState();
+
+  // Customer order detail: show the code only once the order is delivered.
+  const oldOpenOrder=window.openOrder;
+  window.openOrder=function(id){
+    const o=S.orders.find(x=>x.id===id); if(!o)return;
+    ensureVerification(o); saveState();
+    if(o.status==='delivered' && !o.verification_verified){
+      openSheet(`
+        <div class="h1">🔐 Delivery verification</div>
+        <div class="mut" style="margin-top:4px">Your order has been marked as delivered. Show this code to the provider to confirm that you received the order.</div>
+        <div class="jg-verify-card">
+          <div style="text-align:center;font-weight:850">Your 6-digit verification code</div>
+          <div class="jg-verify-code">${esc(o.verification_code)}</div>
+          <div class="jg-verify-note">Keep this code private until you receive the order. The provider needs it to complete this order.</div>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <div class="row"><span>Order</span><b>${esc(o.order_code)}</b></div>
+          <div class="row"><span>Provider</span><b>${esc(o.business_name)}</b></div>
+          <div class="row"><span>Total</span><b>${money(o.total)}</b></div>
+        </div>
+        <button class="btn sec" style="margin-top:10px" onclick="closeSheet()">Done</button>`);
+      return;
+    }
+    return oldOpenOrder(id);
+  };
+
+  // Provider completion is now protected by the customer's 6-digit code.
+  window.provSetStatus=function(oid,next){
+    if(!U||U.role!=='provider')return toast('Provider access required.');
+    const o=S.orders.find(x=>x.id===oid);
+    if(!o||String(o.provider_id)!==String(U.user.id))return toast('Order not found.');
+    const ok={
+      pending:['accepted','rejected','cancelled'],
+      accepted:['preparing','cancelled'],
+      preparing:['ready','cancelled'],
+      ready:['on_the_way','delivered'],
+      on_the_way:['delivered'],
+      delivered:['completed']
+    };
+    if(!(ok[o.status]||[]).includes(next))return toast('Cannot change from '+o.status+' to '+next+'.');
+
+    if(next==='completed'){
+      ensureVerification(o);
+      if(o.verification_verified){
+        o.status='completed';
+        jgNotifyOrder(o,'completed');
+        saveState();updateBadges();toast('✅ Order completed');renderProvider();
+        return;
+      }
+      openSheet(`
+        <div class="h1">🔐 Verify customer delivery</div>
+        <div class="mut" style="margin-top:4px">Ask the customer for the 6-digit verification code shown in their JajiGo order screen.</div>
+        <div class="card" style="margin-top:12px">
+          <div class="mut">Order</div><b style="font-size:17px">${esc(o.order_code)}</b>
+          <div class="mut" style="margin-top:8px">Customer</div><b>${esc(o.customer_name||'Customer')}</b>
+        </div>
+        <div class="field" style="margin-top:12px"><label>Customer verification code</label><input id="jgVerifyInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="Enter 6 digits" style="font-size:22px;letter-spacing:5px;text-align:center;font-weight:900"></div>
+        <button class="btn" id="jgVerifyBtn">✅ Verify & Complete Order</button>
+        <button class="btn sec" style="margin-top:8px" onclick="closeSheet()">Cancel</button>`);
+      $('#jgVerifyBtn').onclick=()=>{
+        const code=String($('#jgVerifyInput').value||'').replace(/\D/g,'');
+        if(!/^\d{6}$/.test(code))return toast('Enter the 6-digit customer code.');
+        if(code!==String(o.verification_code))return toast('❌ Verification code is incorrect.');
+        o.verification_verified=true;
+        o.verified_at=new Date().toISOString();
+        o.status='completed';
+        jgNotifyOrder(o,'completed');
+        saveState();updateBadges();closeSheet();toast('✅ Customer verified. Order completed.');renderProvider();
+      };
+      setTimeout(()=>$('#jgVerifyInput')?.focus(),60);
+      return;
+    }
+
+    o.status=next;
+    ensureVerification(o);
+    if(next==='delivered'){
+      // The code already exists, but it is now revealed to the customer.
+      jgNotifyOrder(o,'delivered');
+    }else if(next==='on_the_way'){
+      getLiveLocation((err,pos)=>{
+        if(!err){
+          o.delivery_tracking={active:true,lat:pos.lat,lng:pos.lng,accuracy:pos.accuracy,updated_at:new Date().toISOString()};
+          S.delivery_sessions[o.id]={active:true,provider_id:U.user.id};
+          saveState();
+          if(typeof trackProviderOrder==='function')trackProviderOrder(o.id);
+          toast('📍 Live GPS tracking started');
+        }else{
+          saveState();toast('⚠️ Order is on the way. Allow GPS to start live tracking.');
+        }
+      });
+      jgNotifyOrder(o,'on_the_way');
+    }else{
+      jgNotifyOrder(o,next);
+    }
+    saveState();updateBadges();toast('✅ '+next.replace(/_/g,' '));renderProvider();
+  };
+
+  // Make the provider's existing "Complete" action visibly explain why a code is needed.
+  const oldRenderProvider=window.renderProvider;
+  if(typeof oldRenderProvider==='function'){
+    window.renderProvider=function(){
+      return oldRenderProvider.apply(this,arguments);
+    };
+  }
+})();
+</script>
+
 </body>
 </html>
