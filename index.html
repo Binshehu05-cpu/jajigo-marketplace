@@ -1639,6 +1639,7 @@ function renderOrders(app){
   mine.map(o=>{
     const cls={pending:'amber',accepted:'',preparing:'',ready:'',on_the_way:'',delivered:'',completed:'',cancelled:'red',rejected:'red'}[o.status]||'';
     const stepIdx=['pending','accepted','preparing','ready','on_the_way','delivered','completed'].indexOf(o.status);
+    const verifyReady=o.status==='delivered'&&!o.verification_verified?`<div class="jg-verify-ok" style="margin-top:9px">🔐 Your delivery code is ready — tap this order to view your 6-digit code.</div>`:'';
     const bar=o.status==='cancelled'||o.status==='rejected'?'':`<div class="statusbar">${[0,1,2,3,4,5,6].map(i=>`<div class="${i<=stepIdx?'on':''}"></div>`).join('')}</div>`;
     return `<div class="card" onclick="openOrder('${o.id}')"><div class="row"><div style="display:flex;gap:9px;align-items:center"><span style="font-size:22px">${esc(o.logo_char)}</span><div><div class="pname">${esc(o.business_name)}</div><div class="mut">${esc(o.order_code)} · ${(o.created_at||'').slice(0,10)}</div></div></div><span class="pill ${cls}">${esc(L[o.status.replace(/_/g,'')]||o.status)}</span></div>${bar}<div class="row" style="margin-top:6px"><span class="mut">${o.payment_method==='cash_on_delivery'?L.cod:L.bank}</span><b style="color:var(--g)">${money(o.total)}</b></div></div>`
   }).join('')+'</div>';
@@ -4114,7 +4115,9 @@ nav.tabs button.on .ti{
   (S.orders||[]).forEach(ensureVerification);
   saveState();
 
-  // Customer order detail: show the code only once the order is delivered.
+  // Customer order detail: show the code once the provider marks the order delivered.
+  // The code is generated when the order is created, but is intentionally revealed
+  // to the customer only at delivery so it can be used to confirm receipt.
   const oldOpenOrder=window.openOrder;
   window.openOrder=function(id){
     const o=S.orders.find(x=>x.id===id); if(!o)return;
