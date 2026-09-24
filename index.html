@@ -689,7 +689,7 @@ function newState(){
     uiLang:'en',sessions:{},pwdHash:{},
     customers:[{id:1,phone:'08011111111',full_name:'Amina Yusuf',password:'demo1234',address:'House 12, Jaji Town',uiLang:'en'}],
     providers:provs.map(p=>({...p,user_phone:p.phone,password:'demo1234'})),
-    admins:[{id:1,phone:'07000000000',password:'admin1234'}],
+    admins:[], /* admin accounts live on the server only */
     products:prods,categories:cats,reviews:buildReviews(),
     carts:{},cart_items:[],orders:[],order_counter:3,
     messages:[],notifications:[],commission_payments:[],
@@ -708,7 +708,8 @@ if(!S) S=newState();
 // Safe migration: incomplete or older saved data must never cause a blank screen.
 const __freshState=newState();
 ['admins','providers','products','categories','reviews','offers','customers','orders','messages','notifications','commission_payments','announcements','campaigns','complaints'].forEach(k=>{if(!Array.isArray(S[k]))S[k]=__freshState[k]||[]});
-if(!S.admins.length)S.admins=__freshState.admins.slice();
+S.admins=[]; /* purge any admin account saved by older versions */
+if(S.pwdHash&&typeof S.pwdHash==='object')delete S.pwdHash.admin;
 if(typeof S.comm_rate!=='number')S.comm_rate=10;
 if(typeof S.bank_details!=='string')S.bank_details=__freshState.bank_details;
 if(!S.sessions||typeof S.sessions!=='object')S.sessions={};
@@ -736,6 +737,7 @@ function money(n){return '₦'+Number(n||0).toLocaleString('en-NG')}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function uid(){return Date.now().toString(36)+'-'+Math.floor(Math.random()*9999).toString(36)}
 /* ===== Delivery verification helpers (shared by customer / provider / admin) ===== */
+const JG_MAX_VERIFY_ATTEMPTS=5;
 function jgNewVerifyCode(){try{return String(100000+(crypto.getRandomValues(new Uint32Array(1))[0]%900000))}catch(e){return String(Math.floor(100000+Math.random()*900000))}}
 function jgOrderCode(o){
   if(!o)return '';
@@ -820,17 +822,8 @@ async function apiGet(path){
 async function login(loginId,password){
   const raw=String(loginId||'').trim();
   const norm=normPhone(raw);
-  // Keep existing local admin/provider demo accounts working.
-  const a=S.admins.find(x=>x.phone===norm);
-  if(a){
-    if(a.password_hash&&await shaPw(norm,password)!==a.password_hash && a.password!==password)return{ok:false,err:'Wrong phone number or password.'};
-    if(a.password_hash&&await shaPw(norm,password)===a.password_hash || a.password===password){
-      const remote=await apiAuth('/api/auth/login',{login:raw,password});
-      if(remote.ok&&remote.user?.role==='admin')return{ok:true,role:'admin',user:remote.user,token:remote.token,remoteAdmin:true};
-      return{ok:true,role:'admin',user:a,token:'local'};
-    }
-    return{ok:false,err:'Wrong phone number or password.'};
-  }
+  // Admin accounts are never checked locally. Admin signs in through the server below.
+  // Keep existing local provider demo accounts working.
   const p=S.providers.find(x=>(x.user_phone||x.phone)===norm);
   if(p){
     if(p.status==='suspended')return{ok:false,err:'Your business is suspended. Contact JajiGo.'};
@@ -846,6 +839,7 @@ async function login(loginId,password){
   }
   const r=await apiAuth('/api/auth/login',{login:raw,password});
   if(!r.ok)return r;
+  if(r.user&&r.user.role==='admin'&&r.token)return{ok:true,role:'admin',user:r.user,token:r.token,remoteAdmin:true};
   return{ok:true,role:r.user.role||'customer',user:{...r.user,uiLang:r.user.uiLang||S.uiLang||'en'},token:r.token,remoteCustomer:true};
 }
 async function registerCustomer(phone,email,password,name){
@@ -885,6 +879,8 @@ async function sha256Async(s){const buf=new TextEncoder().encode(s);const h=awai
 function sha256(s){let h=0;for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0}return 'demo-'+(h>>>0).toString(16)}
 
 /* ---------- CURRENT USER (in-memory session, restored on load) ---------- */
+/* Drop any old local-only admin session; admin must sign in through the server. */
+if(S.current&&S.current.role==='admin'&&(!S.current.token||S.current.token==='local')){S.current=null;saveState()}
 let U=S.current||null;
 
 /* ---------- Notifications ---------- */
@@ -1086,7 +1082,6 @@ function showAuth(initialMsg){
         <div class="auth-demo-row">
           <button class="link" onclick="useDemo('customer')">👤 Customer demo</button>
           <button class="link" onclick="useDemo('provider_food')">🏪 Provider demo</button>
-          <button class="link" onclick="useDemo('admin')">🛡️ Admin demo</button>
         </div>
       </div>`:''}
     </div>`;
@@ -1173,7 +1168,7 @@ function showAuth(initialMsg){
           if(mode==='register'){
             const r=await registerCustomer(ph,$('#aEmail').value.trim(),pw,$('#aName').value.trim());if(!r.ok){initialMsg=r.err;render();return;}U={role:'customer',user:r.user,token:r.token,remoteCustomer:!!r.remoteCustomer};
           }else{
-            const r=await login(ph,pw);if(!r.ok){initialMsg=r.err;render();return;}U={role:r.role,user:r.user,pending:r.pending||false,token:r.token,remoteCustomer:!!r.remoteCustomer};if(U.role!=='customer'){initialMsg='This is not a customer account. Please choose Provider login or Admin login.';render();return;}setLang(U.user.uiLang||'en');
+            const r=await login(ph,pw);if(!r.ok){initialMsg=r.err;render();return;}if(r.role==='admin'&&r.remoteAdmin&&r.token){U={role:'admin',user:r.user,token:r.token,remoteAdmin:true};S.current={role:'admin',user:r.user,token:r.token};saveState();await boot();return;}U={role:r.role,user:r.user,pending:r.pending||false,token:r.token,remoteCustomer:!!r.remoteCustomer};if(U.role!=='customer'){initialMsg='This is not a customer account. Please choose Provider login or Admin login.';render();return;}setLang(U.user.uiLang||'en');
           }
           S.current={role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};saveState();await new Promise(resolve=>setTimeout(resolve,350));await boot();
         }catch(e){console.error('JajiGo auth error:',e);initialMsg='Login could not open this account. Please try again.';render();}
@@ -1210,9 +1205,9 @@ window.useDemo=function(sel){
   const map={
     customer:['08011111111','demo1234'],
     provider_food:['08030000001','demo1234'],
-    provider_kitchen:['08030000002','demo1234'],
-    admin:['07000000000','admin1234']
+    provider_kitchen:['08030000002','demo1234']
   };
+  if(!map[sel])return;
   $('#aPhone').value=map[sel][0];$('#aPass').value=map[sel][1];$('#aGo').click();
 }
 async function boot(){
@@ -1537,7 +1532,7 @@ function renderProduct(id){
   function updateBtn(){const tot=p.price*qty;$('#qV').textContent=qty;$('#addBtn').textContent='🛒 '+L.add_cart+' · '+money(tot)}
   $('#qM').onclick=()=>{qty=Math.max(1,qty-1);updateBtn()};
   $('#qP').onclick=()=>{qty=Math.min(99,qty+1);updateBtn()};
-  $('#addBtn').onclick=()=>{addToCart(p.id,qty);toast('✅ Added to cart');setTimeout(()=>{view.tab='cart';view.product_id=null;view.provider_id=null;renderApp()},500)};
+  $('#addBtn').onclick=()=>{if(addToCart(p.id,qty)===false)return;toast('✅ Added to cart');setTimeout(()=>{view.tab='cart';view.product_id=null;view.provider_id=null;renderApp()},500)};
 }
 
 function addToCart(pid,qty){
@@ -1545,9 +1540,18 @@ function addToCart(pid,qty){
   if(!S.cart_items)S.cart_items=[];
   // Multi-provider cart: products from different providers can coexist.
   const cur=S.cart_items.find(ci=>ci.cart_id===U.user.id&&ci.product_id===pid);
+  const st=jgStockOf(productById(pid)),have=cur?cur.quantity:0;
+  if(st!==null){
+    if(st<=0){toast('Sorry, this item is out of stock.');return false}
+    if(have+qty>st){
+      if(have>=st){toast('Only '+st+' in stock.');return false}
+      qty=st-have;toast('Only '+st+' in stock. Quantity adjusted.');
+    }
+  }
   if(cur)cur.quantity=Math.min(99,cur.quantity+qty);
   else S.cart_items.push({id:uid(),cart_id:U.user.id,product_id:pid,quantity:Math.min(99,qty)});
   saveState();updateBadges();
+  return true;
 }
 function getCartItems(){
   if(!U||U.role!=='customer')return [];
@@ -1595,7 +1599,12 @@ function renderCart(app){
 }
 window.cartQty=function(id,qty){
   const ci=S.cart_items.find(x=>x.id===id);if(!ci)return;
-  if(qty<=0)S.cart_items=S.cart_items.filter(x=>x.id!==id);else ci.quantity=Math.min(99,qty);
+  if(qty<=0)S.cart_items=S.cart_items.filter(x=>x.id!==id);
+  else{
+    const st=jgStockOf(productById(ci.product_id));
+    if(st!==null&&st<=0){S.cart_items=S.cart_items.filter(x=>x.id!==id);toast('This item is now out of stock.')}
+    else{let q=Math.min(99,qty);if(st!==null&&q>st){q=st;toast('Only '+st+' in stock.')}ci.quantity=q}
+  }
   saveState();updateBadges();renderTab();
 }
 
@@ -1642,7 +1651,46 @@ function openCheckout(confirmedFirst){
     $('#cFinal').onclick=()=>placeOrders(modes,address,phone,pm,groups,subtotal);
   };
 }
+/* ---- Stock helpers: tracked stock is checked at cart/checkout, deducted on order, restored on cancel/reject ---- */
+function jgStockOf(p){
+  if(!p||p.stock==null||p.stock==='')return null; /* not tracked */
+  const n=Number(p.stock);return Number.isFinite(n)?Math.max(0,Math.floor(n)):null;
+}
+function jgCheckStock(groups){
+  const problems=[];
+  groups.forEach(g=>g.items.forEach(i=>{
+    const p=productById(i.product.id),st=jgStockOf(p);
+    if(st!==null&&i.quantity>st){
+      problems.push(st<=0?(p.name+' is out of stock'):(p.name+': only '+st+' left'));
+      const ci=S.cart_items.find(x=>x.id===i.id);
+      if(ci){if(st<=0)S.cart_items=S.cart_items.filter(x=>x.id!==ci.id);else ci.quantity=st}
+    }
+  }));
+  return problems;
+}
+function jgDeductStock(order){
+  const done=[];
+  (order.items||[]).forEach(it=>{
+    const p=productById(it.product_id),st=jgStockOf(p);
+    if(st===null)return;
+    const take=Math.min(st,Number(it.quantity)||0);
+    p.stock=st-take;done.push({product_id:it.product_id,qty:take});
+    if(p.stock<=0&&p.is_available){p.is_available=0;p.auto_hidden=true}
+  });
+  if(done.length)order.stock_items=done;
+}
+function jgRestoreStock(order){
+  if(!order||!order.stock_items||order.stock_restored)return;
+  order.stock_items.forEach(it=>{
+    const p=productById(it.product_id);if(!p)return;
+    p.stock=(jgStockOf(p)||0)+it.qty;
+    if(p.auto_hidden&&p.stock>0){p.is_available=1;p.auto_hidden=false}
+  });
+  order.stock_restored=true;
+}
 function placeOrders(modes,address,phone,pm,groups,grandSubtotal){
+  const stockProblems=jgCheckStock(groups);
+  if(stockProblems.length){saveState();updateBadges();closeSheet();view.tab='cart';renderTab();toast('⚠️ '+stockProblems.join('; ')+'. Your cart was updated.');return}
   const rate=S.comm_rate||10,comm_on_deliv=S.comm_on_delivery==='1',now=new Date().toISOString();
   const created=[];
   groups.forEach((g,idx)=>{
@@ -1655,7 +1703,7 @@ function placeOrders(modes,address,phone,pm,groups,grandSubtotal){
       subtotal:g.subtotal,delivery_fee:df,total,rate,commission,provider_net:prov_net,status:'pending',payment_method:pm,payment_status:'pending',delivery_mode:mode,
       verification_code:jgNewVerifyCode(),verification_verified:false,verified_at:null,
       address:mode==='customer_pickup'?null:address,created_at:now};
-    S.orders.unshift(order);created.push(order);notify('prov',g.provider.id,'🧾 New order '+code,`${g.provider.business_name} · ${money(total)}`,'new_order',order.id);
+    S.orders.unshift(order);created.push(order);jgDeductStock(order);notify('prov',g.provider.id,'🧾 New order '+code,`${g.provider.business_name} · ${money(total)}`,'new_order',order.id);
   });
   S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();toast('🎉 '+L.order_placed+' · '+created.length+' order'+(created.length===1?'':'s'));jgShowNewOrderCodes(created);
 }
@@ -2302,7 +2350,7 @@ function renderProvider(){
       const nextBtns={pending:[['accepted','✔ Accept'],['rejected','✖ Reject']],accepted:[['preparing','🍳 Preparing']],preparing:[['ready','✔ Ready']],ready:[['on_the_way','🛵 On the Way'],['delivered','✅ Delivered']],on_the_way:[['delivered','✅ Delivered']],delivered:[['completed','🔐 Verify & Complete']]}[o.status]||[];
       return `<div class="card"><div class="row"><div><div class="pname">${esc(o.order_code)}</div><div class="mut">${esc(o.customer_name)} · ${esc(o.customer_phone||'')} · ${money(o.total)}</div><div class="mut">${o.address?`📍 ${esc(o.address)}`:''}${o.delivery_mode==='customer_pickup'?' · Pickup':''}</div></div><span class="pill ${cls}">${o.status.replace(/_/g,' ')}</span></div>
         ${nextBtns.length?`<div class="chips" style="margin-top:9px">${nextBtns.map(b=>`<button class="chip ${b[0]==='rejected'?'':'on'}" onclick="provSetStatus('${o.id}','${b[0]}')">${b[1]}</button>`).join('')}</div>`:''}
-        ${o.status==='delivered'&&!o.verification_verified?`<div class="mut" style="margin-top:8px;font-size:12.5px">🔐 Ask the customer for the 6-digit code from their order screen, then tap <b>Verify & Complete</b>.</div>`:''}
+        ${o.verify_locked?`<div class="mut" style="margin-top:8px;font-size:12.5px;color:#b91c1c">🔒 Code entry is locked after too many wrong attempts. JajiGo admin has been alerted.</div>`:''}${o.status==='delivered'&&!o.verification_verified?`<div class="mut" style="margin-top:8px;font-size:12.5px">🔐 Ask the customer for the 6-digit code from their order screen, then tap <b>Verify & Complete</b>.</div>`:''}
         ${o.status==='completed'&&o.verification_verified?`<div class="jg-verify-ok" style="margin-top:9px">🔐 Customer verified${o.verified_at?' · '+esc(jgFmtTime(o.verified_at)):''}</div>`:''}</div>`}).join(' ')}</div>`;
   }
   function paintProducts(){
@@ -2710,6 +2758,7 @@ window.adminOrderDetail=function(id){
   const code=jgOrderCode(o),inactive=['cancelled','rejected'].includes(o.status);
   openSheet(`<div class="h1">${esc(o.order_code)}</div>
     <span class="pill ${inactive?'red':''}" style="margin-top:6px">${esc(String(o.status).replace(/_/g,' '))}</span>
+    ${o.verify_locked?`<div class="card" style="margin-top:10px;border:1px solid #fecaca;background:#fef2f2"><b style="color:#b91c1c">🔒 Delivery code entry locked</b><div class="mut" style="margin:4px 0 8px;font-size:12.5px">${Number(o.verify_attempts||0)} wrong attempts${o.verify_locked_at?' · '+esc(jgFmtTime(o.verify_locked_at)):''}. Check with the customer and provider before unlocking.</div><button class="btn sec" onclick="jgAdminUnlockVerify('${esc(o.id)}')">🔓 Unlock code entry</button></div>`:''}
     <div class="jg-verify-card ${o.verification_verified?'done':''}">
       <div style="text-align:center;font-weight:850">🔐 Delivery verification code</div>
       <div class="jg-verify-code">${esc(code)}</div>
@@ -2793,7 +2842,7 @@ async function renderAdmin(){
     <h2 class="sec">🧾 All Orders</h2>
     <div class="mut" style="margin-bottom:8px;font-size:12.5px">Tap an order to see its full details and delivery verification code.</div>
     <input id="adOrdQ" class="jg-admin-search" placeholder="Search code, customer, business…" oninput="jgFilterAdminOrders(this.value)">
-    <div style="overflow-x:auto"><table class="tbl" id="adOrdTbl"><tr><th>Order</th><th>Verif. code</th><th>Business</th><th>Customer</th><th>Total</th><th>Comm.</th><th>Status</th></tr>${S.orders.map(o=>`<tr class="jg-ord-row" onclick="adminOrderDetail('${esc(o.id)}')" style="cursor:pointer"><td>${esc(o.order_code)}</td><td><b class="jg-tbl-code">${esc(jgOrderCode(o))}</b><div class="mut" style="font-size:11px">${o.verification_verified?'✅ verified':(['cancelled','rejected'].includes(o.status)?'—':'⏳ pending')}</div></td><td>${esc(o.business_name)}</td><td>${esc(o.customer_name)}</td><td>${money(o.total)}</td><td>${money(o.commission||0)}</td><td>${o.status}</td></tr>`).join('')||'<tr><td colspan="7" class="mut">No orders</td></tr>'}</table></div>`;
+    <div style="overflow-x:auto"><table class="tbl" id="adOrdTbl"><tr><th>Order</th><th>Verif. code</th><th>Business</th><th>Customer</th><th>Total</th><th>Comm.</th><th>Status</th></tr>${S.orders.map(o=>`<tr class="jg-ord-row" onclick="adminOrderDetail('${esc(o.id)}')" style="cursor:pointer"><td>${esc(o.order_code)}</td><td><b class="jg-tbl-code">${esc(jgOrderCode(o))}</b><div class="mut" style="font-size:11px">${o.verify_locked?'🔒 locked':o.verification_verified?'✅ verified':(['cancelled','rejected'].includes(o.status)?'—':'⏳ pending')}</div></td><td>${esc(o.business_name)}</td><td>${esc(o.customer_name)}</td><td>${money(o.total)}</td><td>${money(o.commission||0)}</td><td>${o.status}</td></tr>`).join('')||'<tr><td colspan="7" class="mut">No orders</td></tr>'}</table></div>`;
   }
   function paintUsers(){
     $('#app').innerHTML=`<button class="btn sm sec" onclick="adminView='dash';renderAdmin()">← Dashboard</button>
@@ -3022,7 +3071,7 @@ window.openAdminSafely=function(viewName){
     return renderAdmin();
   }catch(err){
     console.error('JajiGo Admin error:',err);
-    if(!Array.isArray(S.admins)||!S.admins.length)S.admins=__freshState.admins.slice();
+    S.admins=[];
     if(!Array.isArray(S.orders))S.orders=[];
     if(!Array.isArray(S.customers))S.customers=[];
     if(!Array.isArray(S.providers))S.providers=[];
@@ -3266,7 +3315,6 @@ async function shaPw(norm,pw){
   if(!S.pwdHash)S.pwdHash={};
   const need=[
     ['customer','08011111111','demo1234'],
-    ['admin','07000000000','admin1234'],
     ['provider_food','08030000001','demo1234'],
     ['provider_kitchen','08030000002','demo1234'],
     ['provider_barber','08030000003','demo1234'],
@@ -3278,7 +3326,6 @@ async function shaPw(norm,pw){
   for(const[k,ph,pw] of need){if(!S.pwdHash[k])S.pwdHash[k]=await shaPw(ph,pw)}
   // patch demo customer to use hashed password
   const c=S.customers.find(x=>x.phone==='08011111111');if(c&&!c.password_hash)c.password_hash=S.pwdHash['customer'];
-  const a=S.admins.find(x=>x.phone==='07000000000');if(a)a.password_hash=S.pwdHash['admin'];
   const providerHashMap={
     '08030000001':'provider_food','08030000002':'provider_kitchen','08030000003':'provider_barber',
     '08030000004':'provider_carwash','08030000005':'provider_autocare','08030000006':'provider_market','08030000007':'provider_pending'
@@ -3288,7 +3335,8 @@ async function shaPw(norm,pw){
   // Login uses the single shared async login() function above.
   // override requireLogin handlers
   window.useDemoImpl=async function(sel){
-    const map={customer:['08011111111','demo1234'],provider_food:['08030000001','demo1234'],provider_kitchen:['08030000002','demo1234'],admin:['07000000000','admin1234']};
+    const map={customer:['08011111111','demo1234'],provider_food:['08030000001','demo1234'],provider_kitchen:['08030000002','demo1234']};
+    if(!map[sel])return;
     const ph=map[sel][0],pw=map[sel][1];
     $('#aPhone').value=ph;$('#aPass').value=pw;
     const r=await login(ph,pw);
@@ -3311,7 +3359,7 @@ async function shaPw(norm,pw){
     if(U&&U.role==='customer'&&!U.remoteCustomer){const cc=S.customers.find(x=>String(x.id)===String(U.user.id));if(cc)U.user=cc;}
     if(U&&U.role==='customer')setLang(U.user.uiLang||'en');
     if(U)boot();else showAuth();
-  } else if(S.default_login){
+  } else if(S.default_login&&S.default_login!=='admin'){
     window.useDemoImpl(S.default_login);
   } else {
     showAuth();
@@ -3792,9 +3840,8 @@ setTimeout(()=>{if(U){window.jajigoGeminiStatus='connecting';jgGeminiCheckHealth
   function ensureAdminState(){
     try{
       const fresh=(typeof newState==='function')?newState():null;
-      if(!Array.isArray(S.admins)||!S.admins.length)S.admins=fresh?fresh.admins:[{id:1,phone:'07000000000',password:'admin1234'}];
+      S.admins=[];
       ['customers','providers','products','categories','orders','commission_payments','complaints','coupons','notifications'].forEach(function(k){if(!Array.isArray(S[k]))S[k]=fresh&&Array.isArray(fresh[k])?fresh[k]:[];});
-      if(!S.admins.some(function(a){return a.phone==='07000000000';}))S.admins.push({id:1,phone:'07000000000',password:'admin1234'});
       if(!window.adminView)window.adminView='dash';
       adminView=window.adminView;
       saveState();
@@ -3802,18 +3849,7 @@ setTimeout(()=>{if(U){window.jajigoGeminiStatus='connecting';jgGeminiCheckHealth
   }
   ensureAdminState();
 
-  const previousLogin=login;
-  login=async function(phone,password){
-    ensureAdminState();
-    const norm=normPhone(phone);
-    const admin=(S.admins||[]).find(function(a){return a.phone===norm;});
-    if(admin){
-      if(admin.password===password)return {ok:true,role:'admin',user:admin};
-      try{if(admin.password_hash&&await shaPw(norm,password)===admin.password_hash)return {ok:true,role:'admin',user:admin};}catch(e){}
-      return {ok:false,err:'Wrong phone number or password.'};
-    }
-    return previousLogin(phone,password);
-  };
+  /* Local admin login removed: admin authentication is server-only (see login()). */
 
   const previousRenderAdmin=renderAdmin;
   renderAdmin=async function(){
@@ -4210,6 +4246,7 @@ nav.tabs button.on .ti{
 
     if(next==='completed'){
       ensureVerification(o);
+      if(o.verify_locked)return toast('🔒 Code entry is locked for this order. Contact JajiGo admin.');
       if(o.verification_verified){
         o.status='completed';
         jgNotifyOrder(o,'completed');
@@ -4229,7 +4266,19 @@ nav.tabs button.on .ti{
       $('#jgVerifyBtn').onclick=()=>{
         const code=String($('#jgVerifyInput').value||'').replace(/\D/g,'');
         if(!/^\d{6}$/.test(code))return toast('Enter the 6-digit customer code.');
-        if(code!==String(o.verification_code))return toast('❌ Verification code is incorrect.');
+        if(o.verify_locked)return toast('🔒 Code entry is locked for this order. Contact JajiGo admin.');
+        if(code!==String(o.verification_code)){
+          o.verify_attempts=(o.verify_attempts||0)+1;
+          if(o.verify_attempts>=JG_MAX_VERIFY_ATTEMPTS){
+            o.verify_locked=true;o.verify_locked_at=new Date().toISOString();
+            notify('admin',null,'🚨 Delivery code locked · '+o.order_code,(o.business_name||'A provider')+' entered a wrong delivery code '+o.verify_attempts+' times. Review the order before unlocking.','verify_locked',o.id);
+            notify('cust',o.customer_id,'🔒 Too many wrong delivery codes','Wrong codes were entered '+o.verify_attempts+' times for '+o.order_code+'. JajiGo admin has been alerted.','verify_locked',o.id);
+            saveState();updateBadges();closeSheet();renderProvider();
+            return toast('🔒 Too many wrong codes. This order is locked and the admin was alerted.');
+          }
+          saveState();
+          return toast('❌ Wrong code. '+(JG_MAX_VERIFY_ATTEMPTS-o.verify_attempts)+' attempt(s) left.');
+        }
         o.verification_verified=true;
         o.verified_at=new Date().toISOString();
         o.status='completed';
@@ -4271,6 +4320,36 @@ nav.tabs button.on .ti{
       return oldRenderProvider.apply(this,arguments);
     };
   }
+})();
+</script>
+
+
+<!-- JajiGo hardening v1: stock restore on cancel/reject + admin unlock for locked delivery codes -->
+<script id="jajigo-hardening-v1">
+(function(){
+  const _cancel=window.cancelOrder;
+  if(typeof _cancel==='function')window.cancelOrder=function(id){
+    const o=S.orders.find(x=>x.id===id),was=o&&o.status;
+    const r=_cancel.apply(this,arguments);
+    if(o&&was!==o.status&&o.status==='cancelled'){jgRestoreStock(o);saveState()}
+    return r;
+  };
+  const _prov=window.provSetStatus;
+  if(typeof _prov==='function')window.provSetStatus=function(oid,next){
+    const o=S.orders.find(x=>x.id===oid),was=o&&o.status;
+    const r=_prov.apply(this,arguments);
+    if(o&&was!==o.status&&(o.status==='cancelled'||o.status==='rejected')){jgRestoreStock(o);saveState()}
+    return r;
+  };
+  window.jgAdminUnlockVerify=function(id){
+    if(!U||U.role!=='admin')return toast('Admin access required.');
+    const o=S.orders.find(x=>String(x.id)===String(id));if(!o)return toast('Order not found.');
+    if(!confirm('Unlock delivery code entry for '+o.order_code+'? The provider will get a fresh set of '+JG_MAX_VERIFY_ATTEMPTS+' attempts.'))return;
+    o.verify_locked=false;o.verify_attempts=0;
+    (o.verify_unlock_log=o.verify_unlock_log||[]).push({at:new Date().toISOString(),by:'admin'});
+    saveState();toast('🔓 Code entry unlocked.');
+    if(typeof window.adminOrderDetail==='function')window.adminOrderDetail(id);
+  };
 })();
 </script>
 
