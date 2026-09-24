@@ -2075,6 +2075,7 @@ function openDeliveryTracking(orderId){if(!U||U.role!=='customer')return showAut
 function openGoogleDirectionsForOrder(orderId){const o=S.orders.find(x=>x.id===orderId);if(!o)return;const tr=o.delivery_tracking;if(tr?.lat!=null&&liveGPS.lat!=null)window.open('https://www.google.com/maps/dir/?api=1&origin='+liveGPS.lat+','+liveGPS.lng+'&destination='+tr.lat+','+tr.lng,'_blank','noopener');else window.open('https://www.google.com/maps','_blank','noopener');}
 window.startDeliveryWatch=startDeliveryWatch;window.openDeliveryTracking=openDeliveryTracking;window.trackProviderOrder=trackProviderOrder;window.openGoogleDirectionsForOrder=openGoogleDirectionsForOrder;
 function openAI(){
+  jgGeminiWarmup();
   if(!U)return showAuth();
   const role=aiRoleName();
   openSheet(`<div class="grab"></div><div class="ai-head"><div class="ai-title">✨ ${L.ask}</div><div class="ai-sub">Smart help for shopping, providers, orders and JajiGo services · Signed in as <b>${role}</b></div></div>
@@ -3438,9 +3439,13 @@ window.JAJIGO_GEMINI_CONFIG={
   baseUrl:'https://jajigo-gemini-ai.onrender.com',
   endpoint:'/api/ai/chat',
   healthEndpoint:'/api/ai/health',
-  timeoutMs:35000,
-  maxHistory:10,
-  sendMarketplaceContext:true
+  timeoutMs:30000,
+  maxHistory:6,
+  sendMarketplaceContext:true,
+  maxProductsContext:40,
+  maxProvidersContext:20,
+  maxDemandsContext:10,
+  maxTextChars:700
 };
 window.jajigoGeminiStatus='idle';
 let jajigoGeminiBusy=false;
@@ -3464,22 +3469,47 @@ function jgGeminiApiUrl(path){
   return base+String(path||'');
 }
 function jgGeminiSafeContext(){
-  const user=U?{role:U.role,id:U.user?.id||null,name:U.user?.name||null,business_name:U.user?.business_name||null}:null;
-  const products=(S?.products||[]).filter(p=>p&&p.is_available!==0).slice(0,120).map(p=>({
-    id:p.id,name:p.name,description:p.desc||p.description||'',price:Number(p.price)||0,
-    category:p.cat_slug||p.category||'',provider_id:p.provider_id,available:p.is_available!==0
-  }));
-  const providers=(S?.providers||[]).filter(p=>p&&p.status==='approved').slice(0,60).map(p=>({
-    id:p.id,name:p.business_name||p.name||'Provider',category_id:p.category_id||null,
-    category:categoryById?.(p.category_id)?.slug||'',description:p.desc||'',address:p.address||'',status:p.status
-  }));
-  const demands=(S?.ai_demands||[]).filter(d=>d&&d.status!=='resolved').slice(0,30).map(d=>({query:d.query,count:d.count||1,status:d.status||'open'}));
+  const cfg=window.JAJIGO_GEMINI_CONFIG;
+  const clip=(v,n=cfg.maxTextChars)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
+  const user=U?{role:U.role,id:U.user?.id||null,name:clip(U.user?.name,80),business_name:clip(U.user?.business_name,100)}:null;
+
+  /* Send only the fields the AI needs. Smaller JSON = faster upload + parsing. */
+  const products=(S?.products||[])
+    .filter(p=>p&&p.is_available!==0)
+    .slice(0,cfg.maxProductsContext)
+    .map(p=>({
+      id:p.id,
+      name:clip(p.name,90),
+      description:clip(p.desc||p.description,180),
+      price:Number(p.sale_price||p.price)||0,
+      category:clip(p.cat_slug||p.category,60),
+      provider_id:p.provider_id,
+      available:true
+    }));
+
+  const providers=(S?.providers||[])
+    .filter(p=>p&&p.status==='approved')
+    .slice(0,cfg.maxProvidersContext)
+    .map(p=>({
+      id:p.id,
+      name:clip(p.business_name||p.name||'Provider',100),
+      category_id:p.category_id||null,
+      category:clip(categoryById?.(p.category_id)?.slug,60),
+      description:clip(p.desc,160),
+      address:clip(p.address,120)
+    }));
+
+  const demands=(S?.ai_demands||[])
+    .filter(d=>d&&d.status!=='resolved')
+    .slice(0,cfg.maxDemandsContext)
+    .map(d=>({query:clip(d.query,160),count:d.count||1,status:d.status||'open'}));
+
   return {
     app:'JajiGo Marketplace',
     language:typeof uiLang!=='undefined'?uiLang:'en',
     responseLanguage:typeof detectLang==='function'?detectLang(String($('#aiIn')?.value||'')):uiLang,
     user,
-    location:$('#locText')?.textContent||'Jaji, Kaduna',
+    location:clip($('#locText')?.textContent||'Jaji, Kaduna',80),
     products,
     providers,
     missingProductDemands:demands
@@ -3487,16 +3517,21 @@ function jgGeminiSafeContext(){
 }
 function jgGeminiHistory(){
   try{
+    const cfg=window.JAJIGO_GEMINI_CONFIG;
     const m=getAIMemory?.()||{};
     const arr=Array.isArray(m.messages)?m.messages:[];
     const out=[];
-    arr.slice(-20).forEach((item,i)=>{
-      if(typeof item==='string')out.push({role:i%2===0?'user':'model',content:item.slice(0,1600)});
-      else if(item&&typeof item==='object'&&item.text){
-        out.push({role:item.role==='assistant'||item.role==='model'?'model':'user',content:String(item.text).slice(0,1600)});
+    arr.slice(-cfg.maxHistory*2).forEach((item,i)=>{
+      if(typeof item==='string'){
+        out.push({role:i%2===0?'user':'model',content:String(item).slice(0,cfg.maxTextChars)});
+      }else if(item&&typeof item==='object'&&item.text){
+        out.push({
+          role:item.role==='assistant'||item.role==='model'?'model':'user',
+          content:String(item.text).replace(/\s+/g,' ').trim().slice(0,cfg.maxTextChars)
+        });
       }
     });
-    return out.slice(-window.JAJIGO_GEMINI_CONFIG.maxHistory);
+    return out.slice(-cfg.maxHistory);
   }catch(e){return[]}
 }
 function jgGeminiAppend(text,kind='ai'){
@@ -3548,15 +3583,35 @@ async function jgGeminiCall(message){
 }
 async function jgGeminiCheckHealth(){
   try{
-    const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),8000);
-    const res=await fetch(jgGeminiApiUrl(window.JAJIGO_GEMINI_CONFIG.healthEndpoint),{signal:controller.signal,cache:'no-store'});
-    clearTimeout(timer);
-    const data=await res.json().catch(()=>({}));
-    if(!res.ok||!data.ready)throw new Error('Gemini backend not ready');
-    window.jajigoGeminiStatus='online';
+    const ok=await jgGeminiWarmup();
+    window.jajigoGeminiStatus=ok?'online':'error';
   }catch(e){window.jajigoGeminiStatus='error'}
   jgGeminiUpdateStatus();
 }
+let jajigoGeminiWarmPromise=null;
+let jajigoGeminiWarmAt=0;
+function jgGeminiWarmup(){
+  const cfg=window.JAJIGO_GEMINI_CONFIG;
+  if(!cfg?.enabled)return;
+  const now=Date.now();
+  if(jajigoGeminiWarmPromise && now-jajigoGeminiWarmAt<60000)return jajigoGeminiWarmPromise;
+  jajigoGeminiWarmAt=now;
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),7000);
+  jajigoGeminiWarmPromise=fetch(jgGeminiApiUrl(cfg.healthEndpoint),{
+    method:'GET',cache:'no-store',signal:controller.signal
+  }).then(async res=>{
+    const data=await res.json().catch(()=>({}));
+    if(res.ok&&data.ready){
+      window.jajigoGeminiStatus='online';
+      jgGeminiUpdateStatus();
+      return true;
+    }
+    return false;
+  }).catch(()=>false).finally(()=>clearTimeout(timer));
+  return jajigoGeminiWarmPromise;
+}
+
 function jgGeminiEnsureStatus(){
   const body=$('#sheetBody');if(!body)return;
   let st=$('#jgGeminiStatus');
