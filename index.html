@@ -837,7 +837,7 @@ async function login(loginId,password){
     if(c.password_hash&&await shaPw(norm,password)===c.password_hash)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
     if(c.password===password)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
   }
-  const r=await apiAuth('/api/auth/login',{login:raw,password});
+  const r=await apiAuth('/api/auth/login',{email:raw,password});
   if(!r.ok)return r;
   if(r.user&&r.user.role==='admin'&&r.token)return{ok:true,role:'admin',user:r.user,token:r.token,remoteAdmin:true};
   return{ok:true,role:r.user.role||'customer',user:{...r.user,uiLang:r.user.uiLang||S.uiLang||'en'},token:r.token,remoteCustomer:true};
