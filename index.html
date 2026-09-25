@@ -698,7 +698,7 @@ function newState(){
     admins:[], /* admin accounts live on the server only */
     products:prods,categories:cats,reviews:buildReviews(),
     carts:{},cart_items:[],orders:[],order_counter:3,
-    messages:[],notifications:[],commission_payments:[],
+    messages:[],notifications:[],commission_payments:[],withdrawal_requests:[],
     announcements:[],campaigns:[],complaints:[],
     home_banner:{active:true,image:'',title:'Welcome to JajiGo',body:'Everything you need, right around Jaji.',updated_at:new Date().toISOString()},
     favorites:{},comm_rate:10,bank_details:'JajiGo Banking | Zenith Bank | 1012345678 | JajiGo Ltd',
@@ -713,7 +713,7 @@ function newState(){
 if(!S) S=newState();
 // Safe migration: incomplete or older saved data must never cause a blank screen.
 const __freshState=newState();
-['admins','providers','products','categories','reviews','offers','customers','orders','messages','notifications','commission_payments','announcements','campaigns','complaints'].forEach(k=>{if(!Array.isArray(S[k]))S[k]=__freshState[k]||[]});
+['admins','providers','products','categories','reviews','offers','customers','orders','messages','notifications','commission_payments','withdrawal_requests','announcements','campaigns','complaints'].forEach(k=>{if(!Array.isArray(S[k]))S[k]=__freshState[k]||[]});
 S.admins=[]; /* purge any admin account saved by older versions */
 if(S.pwdHash&&typeof S.pwdHash==='object')delete S.pwdHash.admin;
 if(typeof S.comm_rate!=='number')S.comm_rate=10;
@@ -1952,7 +1952,9 @@ function renderProfile(app){
       <option value="ha" ${uiLang==='ha'?'selected':''}>🟢 Hausa</option></select></div>
     <button class="btn" id="prSave">${L.save}</button>
   </div>
+  ${jgIdCard('JajiGo Customer ID',jgCustomerIdValue(c))}
   <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+    <button class="btn sec" onclick="jgOpenCustomerSpending()">💰 My Spending</button>
     <button class="btn sec" onclick="openFavorites()">❤️ ${L.favorites}</button>
     <button class="btn sec" onclick="openNotifications()">🔔 Notifications</button>
     <button class="btn sec" onclick="openCustomerCare()">🆘 Customer Care & Complaints</button>
@@ -2377,6 +2379,7 @@ function renderProvider(){
     ${celebrationBannerHtml()}
     <div class="h1" style="margin-top:4px">🏪 ${esc(p.business_name)}</div>
     <span class="pill ${p.status==='approved'?'':'amber'}" style="margin-bottom:10px;display:inline-block">${p.status==='approved'?'✔ Approved':p.status==='pending'?'⏳ Awaiting Approval':'⚠ '+p.status}</span>
+    ${jgIdCard('JajiGo Provider ID',jgProviderIdValue(p))}
     <div class="statgrid">
       <div class="stat"><div class="sv">${money(salesToday)}</div><div class="sl">Sales today</div></div>
       <div class="stat"><div class="sv">${ordersToday}</div><div class="sl">Orders today</div></div>
@@ -2391,6 +2394,7 @@ function renderProvider(){
       <button class="btn" onclick="provView.tab='orders';renderProvider()">🧾 Orders</button>
       <button class="btn sec" onclick="provView.tab='products';renderProvider()">📦 My Products</button>
       <button class="btn sec" onclick="provView.tab='business';renderProvider()">🏢 Business Settings</button>
+      <button class="btn sec" onclick="provView.tab='wallet';renderProvider()">💳 Wallet & Earnings</button>
       <button class="btn sec" onclick="provView.tab='commission';renderProvider()">💰 Commission</button>
       <button class="btn sec" onclick="provView.tab='news';renderProvider()">📢 JajiGo News & Promotions</button>
       <button class="btn sec" onclick="provView.tab='analytics';renderProvider()">📊 My Product Analytics</button>
@@ -2614,6 +2618,7 @@ function renderProvider(){
     case'products':return paintProducts();
     case'business':return paintBusiness();
     case'commission':return paintCommission();
+    case'wallet':return paintWallet();
     case'news':return paintNews();
     case'analytics':return paintAnalytics();
     case'chat':
@@ -2868,6 +2873,7 @@ async function renderAdmin(){
     </div>
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
       <button class="btn" onclick="adminView='appr';renderAdmin()">✅ Provider Approvals (${stats.pending})</button>
+      <button class="btn sec" onclick="adminView='finance';renderAdmin()">💰 Finance & Payouts</button>
       <button class="btn sec" onclick="adminView='comm';renderAdmin()">💰 Commission Confirmations (${stats.pending_comm})</button>
       <button class="btn sec" onclick="adminView='orders';renderAdmin()">🧾 All Orders</button>
       <button class="btn sec" onclick="adminView='users';renderAdmin()">👥 Users</button>
@@ -3121,6 +3127,10 @@ async function renderAdmin(){
     case'marketing':return paintMarketing();
     case'complaints':return paintComplaints();
     case'settings':return paintSettings();
+    case'finance':return paintFinance();
+    case'payouts':return paintPayouts();
+    case'commission_mgmt':return paintCommissionMgmt();
+    case'id_search':return paintIdSearch();
     default:return paintDash();
   }
 }
@@ -4416,6 +4426,347 @@ nav.tabs button.on .ti{
     saveState();toast('🔓 Code entry unlocked.');
     if(typeof window.adminOrderDetail==='function')window.adminOrderDetail(id);
   };
+})();
+</script>
+
+<!-- JajiGo Financial UI v1: customer spending, provider wallet, admin finance/payouts. Display-only — real balances come from the backend once connected. -->
+<script id="jajigo-financial-ui-v1">
+(function(){
+
+/* ---------- ID helpers ----------
+   These NEVER generate an ID. They only display a real ID field if the
+   backend has already supplied one on the record. Until then a clear
+   placeholder is shown so the UI is ready to receive the real value later. */
+function jgCustomerIdValue(c){
+  if(!c)return null;
+  return c.customer_code||c.jajigo_customer_id||c.customer_id_code||null;
+}
+function jgProviderIdValue(p){
+  if(!p)return null;
+  return p.provider_code||p.jajigo_provider_id||p.provider_id_code||null;
+}
+window.jgCustomerIdValue=jgCustomerIdValue;
+window.jgProviderIdValue=jgProviderIdValue;
+window.jgIdCard=function(label,value){
+  return `<div class="card" style="margin-top:12px">
+    <div class="mut" style="font-size:12px">${esc(label)}</div>
+    <div class="row" style="margin-top:5px">
+      <div style="font-size:16px;font-weight:800;letter-spacing:.2px">${value?esc(value):'Not yet assigned'}</div>
+      ${value?`<button class="chip" type="button" onclick="jgCopyId('${esc(value)}')">📋 Copy</button>`:''}
+    </div>
+    ${value?'':'<div class="mut" style="font-size:11.5px;margin-top:4px">This ID will appear automatically once JajiGo assigns it to your account.</div>'}
+  </div>`;
+};
+window.jgCopyId=function(v){
+  if(!v)return;
+  const done=()=>toast('📋 Copied');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(done).catch(()=>toast('Could not copy. Long-press to copy manually.'));
+  }else{
+    try{const ta=document.createElement('textarea');ta.value=v;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);done();}
+    catch(e){toast('Could not copy. Long-press to copy manually.');}
+  }
+};
+
+/* ---------- shared money helpers ----------
+   All figures below are computed from real order records already in S.
+   Nothing here is fabricated; it mirrors the same computation style the
+   existing Provider and Admin dashboards already use (see renderProvider /
+   renderAdmin). Once a real finance API exists, these can be swapped for
+   API calls without changing the UI that reads them. */
+function jgValidOrders(list){return (list||[]).filter(o=>!['cancelled','rejected'].includes(o.status));}
+window.jgAllValidOrders=function(){return jgValidOrders(S.orders);};
+function jgSumRange(orders,startMs,endMs){
+  return orders.filter(o=>{const t=Date.parse(o.created_at||'');return Number.isFinite(t)&&t>=startMs&&t<=endMs}).reduce((s,o)=>s+Number(o.total||0),0);
+}
+function jgProviderNet(o){return o.provider_net!=null?Number(o.provider_net):Math.max(0,Number(o.total||0)-Number(o.commission||0));}
+
+/* =====================================================================
+   CUSTOMER — Spending dashboard, period filter, chart, transaction history
+   ===================================================================== */
+function jgCustomerOrders(){
+  if(!U||U.role!=='customer')return [];
+  return jgValidOrders(S.orders.filter(o=>o.customer_id===U.user.id));
+}
+window.jgOpenCustomerSpending=function(){
+  if(!U||U.role!=='customer')return showAuth();
+  const st={filter:'month',chart:'daily'};
+  function paint(){
+    const orders=jgCustomerOrders();
+    const now=new Date();
+    const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+    const startMonth=new Date(now.getFullYear(),now.getMonth(),1).getTime();
+    const startYear=new Date(now.getFullYear(),0,1).getTime();
+    const endNow=now.getTime();
+    const todaySpend=jgSumRange(orders,startToday,endNow);
+    const monthSpend=jgSumRange(orders,startMonth,endNow);
+    const yearSpend=jgSumRange(orders,startYear,endNow);
+    const totalSpend=orders.reduce((s,o)=>s+Number(o.total||0),0);
+    const totalOrders=orders.length;
+    const avgOrder=totalOrders?Math.round(totalSpend/totalOrders):0;
+    const ranges={today:[startToday,endNow],week:[endNow-6*86400000,endNow],month:[startMonth,endNow],year:[startYear,endNow]};
+    const [pStart,pEnd]=ranges[st.filter]||ranges.month;
+    const periodSpend=jgSumRange(orders,pStart,pEnd);
+    const periodOrders=orders.filter(o=>{const t=Date.parse(o.created_at||'');return Number.isFinite(t)&&t>=pStart&&t<=pEnd}).sort((a,b)=>Date.parse(b.created_at||0)-Date.parse(a.created_at||0));
+    let buckets=[];
+    if(st.chart==='daily'){
+      for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(d.getDate()-i);const s=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();buckets.push({label:d.toLocaleDateString('en-NG',{weekday:'short'}),value:jgSumRange(orders,s,s+86399999)});}
+    }else if(st.chart==='weekly'){
+      for(let i=7;i>=0;i--){const e=endNow-i*7*86400000,s=e-6*86400000;buckets.push({label:'Wk '+(8-i),value:jgSumRange(orders,s,e)});}
+    }else{
+      for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const e=new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59).getTime();buckets.push({label:d.toLocaleDateString('en-NG',{month:'short'}),value:jgSumRange(orders,d.getTime(),e)});}
+    }
+    const maxB=Math.max(1,...buckets.map(b=>b.value));
+    const hasChart=buckets.some(b=>b.value>0);
+    const chartHtml=hasChart?`<div style="display:flex;align-items:flex-end;gap:7px;height:110px;margin-top:10px">${buckets.map(b=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div title="${money(b.value)}" style="width:100%;max-width:28px;background:var(--g);border-radius:6px 6px 2px 2px;height:${Math.max(4,Math.round(b.value/maxB*90))}px"></div><div class="mut" style="font-size:10px;margin-top:5px">${esc(b.label)}</div></div>`).join('')}</div>`:`<div class="empty" style="padding:20px 6px"><div class="ei">📊</div>No spending data yet</div>`;
+    const txHtml=periodOrders.length?periodOrders.map(o=>`<div class="card" style="margin-bottom:8px;cursor:pointer" onclick="jgOpenTxModal('${esc(o.id)}')"><div class="row"><div><b>${esc(o.order_code||('#'+o.id))}</b><div class="mut" style="font-size:12px">${esc(o.business_name||'')}</div></div><span class="pill ${o.status==='completed'?'':o.status==='cancelled'?'red':'amber'}">${esc(o.status)}</span></div><div class="row" style="margin-top:6px"><span class="mut" style="font-size:12px">${(o.created_at||'').slice(0,16).replace('T',' ')} · Payment</span><b style="color:var(--g)">${money(o.total)}</b></div></div>`).join(''):`<div class="empty" style="padding:22px 6px"><div class="ei">🧾</div>No transactions yet</div>`;
+    const cap=k=>k.charAt(0).toUpperCase()+k.slice(1);
+    openSheet(`
+      <div class="h1">💰 My Spending</div>
+      <div class="statgrid" style="margin-top:10px">
+        <div class="stat"><div class="sv">${money(todaySpend)}</div><div class="sl">Today's spending</div></div>
+        <div class="stat"><div class="sv">${money(monthSpend)}</div><div class="sl">This month</div></div>
+        <div class="stat"><div class="sv">${money(yearSpend)}</div><div class="sl">This year</div></div>
+        <div class="stat"><div class="sv">${money(totalSpend)}</div><div class="sl">Total spent</div></div>
+        <div class="stat"><div class="sv">${totalOrders}</div><div class="sl">Total orders</div></div>
+        <div class="stat"><div class="sv">${money(avgOrder)}</div><div class="sl">Average order</div></div>
+      </div>
+      <div class="chips" style="margin-top:14px">${['today','week','month','year'].map(k=>`<button class="chip ${st.filter===k?'on':''}" type="button" onclick="jgSpendSetFilter('${k}')">${cap(k)}</button>`).join('')}</div>
+      <div class="card" style="margin-top:9px"><div class="row"><span class="mut">Spending — ${cap(st.filter)}</span><b style="color:var(--g)">${money(periodSpend)}</b></div></div>
+      <h2 class="sec" style="margin-top:16px">📈 Spending trend</h2>
+      <div class="chips">${['daily','weekly','monthly'].map(k=>`<button class="chip ${st.chart===k?'on':''}" type="button" onclick="jgSpendSetChart('${k}')">${cap(k)}</button>`).join('')}</div>
+      <div class="card" style="margin-top:9px">${chartHtml}</div>
+      <h2 class="sec" style="margin-top:16px">🧾 Transaction History</h2>
+      <div class="mut" style="margin:-4px 0 8px;font-size:12px">Showing: ${cap(st.filter)}</div>
+      ${txHtml}
+    `);
+  }
+  window.jgSpendSetFilter=function(k){st.filter=k;paint();};
+  window.jgSpendSetChart=function(k){st.chart=k;paint();};
+  paint();
+};
+
+/* Reusable transaction details modal — used by the customer transaction list
+   (and available for any other order-linked view). */
+window.jgOpenTxModal=function(orderId){
+  const o=S.orders.find(x=>String(x.id)===String(orderId));
+  if(!o)return toast('Transaction not found.');
+  const isCust=U&&U.role==='customer';
+  const counterpartyLabel=isCust?'Provider':'Customer';
+  const counterparty=isCust?(o.business_name||''):(o.customer_name||'');
+  openSheet(`<div class="h1">🧾 Transaction Details</div>
+  <div class="card" style="margin-top:10px">
+    <div class="total-row"><span>Transaction ID</span><b>${esc(o.verification_code||o.order_code||o.id)}</b></div>
+    <div class="total-row"><span>Order ID</span><b>${esc(o.order_code||o.id)}</b></div>
+    <div class="total-row"><span>${esc(counterpartyLabel)}</span><b>${esc(counterparty)}</b></div>
+    <div class="total-row"><span>Amount</span><b>${money(o.total)}</b></div>
+    <div class="total-row"><span>Commission</span><b>${money(o.commission||0)}</b></div>
+    <div class="total-row"><span>Payment method</span><b>${o.payment_method==='cash_on_delivery'?'Cash on delivery':'Bank transfer'}</b></div>
+    <div class="total-row"><span>Status</span><b>${esc(o.status)}</b></div>
+    <div class="total-row"><span>Date/time</span><b>${(o.created_at||'').slice(0,16).replace('T',' ')}</b></div>
+  </div>`);
+};
+
+/* =====================================================================
+   PROVIDER — Wallet / Earnings, payment status, withdrawal requests
+   ===================================================================== */
+function jgProviderPayoutFigures(p){
+  const myOrders=jgValidOrders(S.orders.filter(o=>o.provider_id===p.id));
+  const bankNet=myOrders.filter(o=>o.payment_method==='bank_transfer').reduce((s,o)=>s+jgProviderNet(o),0);
+  const reqs=(S.withdrawal_requests||[]).filter(w=>w.provider_id===p.id);
+  const paidOut=reqs.filter(w=>w.status==='paid').reduce((s,w)=>s+Number(w.amount||0),0);
+  const held=reqs.filter(w=>w.status==='pending'||w.status==='approved').reduce((s,w)=>s+Number(w.amount||0),0);
+  const pendingPayout=Math.max(0,bankNet-paidOut);
+  const available=Math.max(0,bankNet-paidOut-held);
+  return{pendingPayout,paidOut,held,available,reqs};
+}
+window.jgProviderPayoutFigures=jgProviderPayoutFigures;
+
+function paintWallet(){
+  if(!U||U.role!=='provider')return showAuth();
+  const p=U.user;
+  const myOrders=jgValidOrders(S.orders.filter(o=>o.provider_id===p.id));
+  const todayStr=(new Date().toISOString()).slice(0,10);
+  const salesToday=myOrders.filter(o=>(o.created_at||'').startsWith(todayStr)).reduce((s,o)=>s+Number(o.total||0),0);
+  const monthStart=new Date();monthStart.setDate(1);monthStart.setHours(0,0,0,0);
+  const salesMonth=myOrders.filter(o=>{const t=Date.parse(o.created_at||'');return Number.isFinite(t)&&t>=monthStart.getTime()}).reduce((s,o)=>s+Number(o.total||0),0);
+  const totalSales=myOrders.reduce((s,o)=>s+Number(o.total||0),0);
+  const totalComm=myOrders.reduce((s,o)=>s+Number(o.commission||0),0);
+  const paidComm=(S.commission_payments||[]).filter(c=>c.provider_id===p.id&&c.status==='confirmed').reduce((s,c)=>s+Number(c.amount||0),0);
+  const owedComm=Math.max(0,totalComm-paidComm);
+  const fig=jgProviderPayoutFigures(p);
+  const delivered=myOrders.filter(o=>['delivered','completed'].includes(o.status)).length;
+  $('#app').innerHTML=`<button class="btn sm sec" type="button" onclick="provView.tab='overview';renderProvider()">← Back</button>
+  <h2 class="sec" style="margin-top:6px">💳 Provider Wallet</h2>
+  <div class="statgrid">
+    <div class="stat"><div class="sv">${money(salesToday)}</div><div class="sl">Today's sales</div></div>
+    <div class="stat"><div class="sv">${money(salesMonth)}</div><div class="sl">This month's sales</div></div>
+    <div class="stat"><div class="sv">${money(totalSales)}</div><div class="sl">Total sales</div></div>
+    <div class="stat"><div class="sv" style="color:${fig.pendingPayout>0?'var(--o)':'var(--g)'}">${money(fig.pendingPayout)}</div><div class="sl">Pending payout</div></div>
+    <div class="stat"><div class="sv" style="color:var(--g)">${money(fig.available)}</div><div class="sl">Available for withdrawal</div></div>
+    <div class="stat"><div class="sv" style="color:${owedComm>0?'var(--o)':'var(--g)'}">${money(owedComm)}</div><div class="sl">JajiGo commission owed</div></div>
+    <div class="stat"><div class="sv">${money(paidComm)}</div><div class="sl">Commission cleared</div></div>
+    <div class="stat"><div class="sv">${delivered}</div><div class="sl">Orders delivered</div></div>
+  </div>
+  <h2 class="sec" style="margin-top:16px">📋 Payment Status</h2>
+  <div class="statgrid">
+    <div class="card"><span class="pill ${fig.pendingPayout>0?'amber':''}">${fig.pendingPayout>0?'⏳ Pending payout':'✅ No pending payout'}</span><div class="mut" style="margin-top:7px;font-size:12px">${fig.pendingPayout>0?'JajiGo is holding '+money(fig.pendingPayout)+' from bank-transfer orders.':'Nothing pending right now.'}</div></div>
+    <div class="card"><span class="pill">💸 Paid out</span><div class="mut" style="margin-top:7px;font-size:12px">${money(fig.paidOut)} withdrawn so far.</div></div>
+    <div class="card"><span class="pill ${owedComm>0?'red':''}">${owedComm>0?'⚠️ Commission owed':'✅ No commission owed'}</span><div class="mut" style="margin-top:7px;font-size:12px">${owedComm>0?'You owe JajiGo '+money(owedComm)+'.':'You are all caught up.'}</div></div>
+    <div class="card"><span class="pill">✅ Commission cleared</span><div class="mut" style="margin-top:7px;font-size:12px">${money(paidComm)} confirmed by admin.</div></div>
+  </div>
+  <button class="btn" style="margin-top:14px" type="button" onclick="jgOpenWithdrawal()">📤 Request Withdrawal</button>
+  <button class="btn sec" style="margin-top:9px" type="button" onclick="provView.tab='commission';renderProvider()">💰 View Commission Details</button>
+  <h2 class="sec" style="margin-top:16px">📜 Withdrawal Requests</h2>
+  ${fig.reqs.length?fig.reqs.slice().reverse().map(w=>`<div class="card" style="margin-bottom:8px"><div class="row"><b>${money(w.amount)}</b><span class="pill ${w.status==='paid'?'':w.status==='pending'?'amber':w.status==='approved'?'':'red'}">${esc(w.status)}</span></div><div class="mut" style="font-size:12px;margin-top:4px">${esc(w.bank_name)} · ${esc(w.account_name)} · ${esc(w.account_number)}</div><div class="mut" style="font-size:11px">${(w.requested_at||'').slice(0,16).replace('T',' ')}</div></div>`).join(''):'<div class="empty"><div class="ei">💸</div>No withdrawal requests yet</div>'}`;
+}
+window.paintWallet=paintWallet;
+
+window.jgOpenWithdrawal=function(){
+  if(!U||U.role!=='provider')return showAuth();
+  const p=U.user;
+  const fig=jgProviderPayoutFigures(p);
+  openSheet(`<div class="h1">📤 Request Withdrawal</div>
+  <div class="card" style="margin-top:8px"><div class="total-row big"><span>Available for withdrawal</span><span style="color:var(--g)">${money(fig.available)}</span></div></div>
+  <div class="field" style="margin-top:10px"><label>Amount (₦)</label><input id="wAmt" type="number" min="0" placeholder="0"></div>
+  <div class="field"><label>Bank name</label><input id="wBank" value="${esc(p.bank_bank_name||'')}"></div>
+  <div class="field"><label>Account name</label><input id="wAcctName" value="${esc(p.bank_account_name||'')}"></div>
+  <div class="field"><label>Account number</label><input id="wAcctNum" value="${esc(p.bank_account_number||'')}"></div>
+  <div class="mut" style="font-size:12px;margin:2px 0 12px">Withdrawal requests are reviewed by JajiGo.</div>
+  <button class="btn" id="wGo" type="button">📤 Submit Withdrawal Request</button>`);
+  $('#wGo').onclick=()=>{
+    const amt=parseInt($('#wAmt').value)||0;
+    const bank=$('#wBank').value.trim(),acctName=$('#wAcctName').value.trim(),acctNum=$('#wAcctNum').value.trim();
+    if(amt<=0)return toast('Enter a valid amount.');
+    if(amt>fig.available)return toast('Amount exceeds your available balance.');
+    if(!bank||!acctName||!acctNum)return toast('Please fill in all bank details.');
+    S.withdrawal_requests=S.withdrawal_requests||[];
+    S.withdrawal_requests.push({id:uid(),provider_id:p.id,amount:amt,bank_name:bank,account_name:acctName,account_number:acctNum,status:'pending',requested_at:new Date().toISOString()});
+    notify('admin',0,'💸 Withdrawal request',`${p.business_name} requested ${money(amt)} withdrawal — needs review.`,'',null);
+    saveState();toast('✅ Withdrawal request submitted');closeSheet();
+    if(U.role==='provider'&&provView.tab==='wallet')paintWallet();
+  };
+};
+
+/* =====================================================================
+   ADMIN — Finance overview, provider payouts, commission management,
+   customer/provider/order ID search
+   ===================================================================== */
+function jgMarketplaceFinance(){
+  const orders=jgAllValidOrders();
+  const totalSales=orders.reduce((s,o)=>s+Number(o.total||0),0);
+  const totalCommission=orders.reduce((s,o)=>s+Number(o.commission||0),0);
+  const commCleared=(S.commission_payments||[]).filter(c=>c.status==='confirmed').reduce((s,c)=>s+Number(c.amount||0),0);
+  const commOwed=Math.max(0,totalCommission-commCleared);
+  const bankNet=orders.filter(o=>o.payment_method==='bank_transfer').reduce((s,o)=>s+jgProviderNet(o),0);
+  const paidOut=(S.withdrawal_requests||[]).filter(w=>w.status==='paid').reduce((s,w)=>s+Number(w.amount||0),0);
+  const pendingPayout=Math.max(0,bankNet-paidOut);
+  return{totalSales,totalCommission,commCleared,commOwed,pendingPayout,paidOut};
+}
+window.jgMarketplaceFinance=jgMarketplaceFinance;
+
+function paintFinance(){
+  if(!U||U.role!=='admin')return showAuth();
+  const f=jgMarketplaceFinance();
+  $('#app').innerHTML=`<button class="btn sm sec" type="button" onclick="adminView='dash';renderAdmin()">← Dashboard</button>
+  <h2 class="sec">💰 Finance & Payouts</h2>
+  <div class="statgrid">
+    <div class="stat"><div class="sv">${money(f.totalSales)}</div><div class="sl">Total marketplace sales</div></div>
+    <div class="stat"><div class="sv" style="color:${f.pendingPayout>0?'var(--o)':'var(--g)'}">${money(f.pendingPayout)}</div><div class="sl">Pending provider payouts</div></div>
+    <div class="stat"><div class="sv">${money(f.paidOut)}</div><div class="sl">Completed provider payouts</div></div>
+    <div class="stat"><div class="sv" style="color:var(--g)">${money(f.totalCommission)}</div><div class="sl">JajiGo commission</div></div>
+    <div class="stat"><div class="sv" style="color:${f.commOwed>0?'var(--o)':'var(--g)'}">${money(f.commOwed)}</div><div class="sl">Commission owed</div></div>
+    <div class="stat"><div class="sv">${money(f.commCleared)}</div><div class="sl">Commission cleared</div></div>
+    <div class="stat"><div class="sv">${money(f.totalSales)}</div><div class="sl">Customer spending</div></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+    <button class="btn" type="button" onclick="adminView='payouts';renderAdmin()">🏦 Provider Payouts</button>
+    <button class="btn sec" type="button" onclick="adminView='commission_mgmt';renderAdmin()">💼 Commission Management</button>
+    <button class="btn sec" type="button" onclick="adminView='id_search';renderAdmin()">🔎 Search Customer / Provider / Order ID</button>
+  </div>`;
+}
+window.paintFinance=paintFinance;
+
+function paintPayouts(){
+  if(!U||U.role!=='admin')return showAuth();
+  const orders=jgAllValidOrders().filter(o=>o.payment_method==='bank_transfer');
+  const reqs=(S.withdrawal_requests||[]).slice().reverse();
+  $('#app').innerHTML=`<button class="btn sm sec" type="button" onclick="adminView='finance';renderAdmin()">← Finance</button>
+  <h2 class="sec">🏦 Provider Payouts</h2>
+  <div class="mut" style="margin-bottom:8px;font-size:12.5px">Orders paid by bank transfer — JajiGo holds these funds until they are paid out to the provider.</div>
+  <div style="overflow-x:auto"><table class="tbl"><tr><th>Provider</th><th>Order</th><th>Order amt</th><th>Comm.</th><th>Provider amt</th><th>Status</th><th>Date</th></tr>
+  ${orders.length?orders.map(o=>{const prov=providerById(o.provider_id);const net=jgProviderNet(o);return `<tr><td>${esc(prov?.business_name||o.business_name||'—')}</td><td>${esc(o.order_code||o.id)}</td><td>${money(o.total)}</td><td>${money(o.commission||0)}</td><td>${money(net)}</td><td><span class="pill amber">Pending</span></td><td>${(o.created_at||'').slice(0,10)}</td></tr>`;}).join(''):'<tr><td colspan="7" class="mut">No pending provider payouts</td></tr>'}
+  </table></div>
+  <div class="mut" style="margin-top:8px;font-size:11.5px">Marking individual orders as paid out requires a secure backend payout endpoint (not yet connected).</div>
+  <h2 class="sec" style="margin-top:18px">📥 Withdrawal Requests</h2>
+  ${reqs.length?reqs.map(w=>{const prov=providerById(w.provider_id);return `<div class="card" style="margin-bottom:9px"><div class="row"><div><b>${esc(prov?.business_name||'Provider')}</b><div class="mut" style="font-size:12px">${money(w.amount)} · ${esc(w.bank_name)} · ${esc(w.account_name)} · ${esc(w.account_number)}</div></div><span class="pill ${w.status==='paid'?'':w.status==='pending'?'amber':w.status==='approved'?'':'red'}">${esc(w.status)}</span></div><div class="mut" style="font-size:11px;margin-top:4px">${(w.requested_at||'').slice(0,16).replace('T',' ')}</div>${w.status==='pending'?`<div class="row" style="gap:8px;margin-top:9px"><button class="btn sm" type="button" onclick="adminSetWithdrawalStatus('${w.id}','approved')">✔ Approve</button><button class="btn sm warn" type="button" onclick="adminSetWithdrawalStatus('${w.id}','rejected')">✖ Reject</button></div>`:''}${w.status==='approved'?`<div class="row" style="gap:8px;margin-top:9px"><button class="btn sm" type="button" onclick="adminSetWithdrawalStatus('${w.id}','paid')">💸 Mark as Paid</button></div>`:''}</div>`;}).join(''):'<div class="empty"><div class="ei">💸</div>No withdrawal requests</div>'}`;
+}
+window.paintPayouts=paintPayouts;
+
+window.adminSetWithdrawalStatus=function(id,status){
+  if(!U||U.role!=='admin')return showAuth();
+  const w=(S.withdrawal_requests||[]).find(x=>String(x.id)===String(id));
+  if(!w)return toast('Request not found.');
+  w.status=status;w.updated_at=new Date().toISOString();
+  notify('prov',w.provider_id,'💸 Withdrawal '+status,`Your withdrawal request of ${money(w.amount)} is now ${status}.`,'',null);
+  saveState();toast('✅ Updated');renderAdmin();
+};
+
+function paintCommissionMgmt(){
+  if(!U||U.role!=='admin')return showAuth();
+  const rows=S.providers.filter(p=>p.status==='approved').map(p=>{
+    const myOrders=jgValidOrders(S.orders.filter(o=>o.provider_id===p.id));
+    const totalComm=myOrders.reduce((s,o)=>s+Number(o.commission||0),0);
+    const paid=(S.commission_payments||[]).filter(c=>c.provider_id===p.id&&c.status==='confirmed').reduce((s,c)=>s+Number(c.amount||0),0);
+    const owed=Math.max(0,totalComm-paid);
+    const last=myOrders.slice().sort((a,b)=>Date.parse(b.created_at||0)-Date.parse(a.created_at||0))[0];
+    return{p,owed,last};
+  }).filter(r=>r.owed>0).sort((a,b)=>b.owed-a.owed);
+  $('#app').innerHTML=`<button class="btn sm sec" type="button" onclick="adminView='finance';renderAdmin()">← Finance</button>
+  <h2 class="sec">💼 Commission Management</h2>
+  <div class="mut" style="margin-bottom:8px;font-size:12.5px">Providers with outstanding JajiGo commission.</div>
+  ${rows.length?rows.map(r=>`<div class="card" style="margin-bottom:9px"><div class="row"><div><b>${esc(r.p.business_name)}</b><div class="mut" style="font-size:12px">Provider ID: ${esc(jgProviderIdValue(r.p)||'Not yet assigned')} · Last order: ${r.last?(r.last.created_at||'').slice(0,10):'—'}</div></div><span class="pill red">${money(r.owed)} owed</span></div><button class="btn sm" style="margin-top:9px" type="button" onclick="adminOpenClearCommission('${r.p.id}',${r.owed})">✔ Mark as Cleared</button></div>`).join(''):'<div class="empty"><div class="ei">💼</div>No commission owed</div>'}`;
+}
+window.paintCommissionMgmt=paintCommissionMgmt;
+
+window.adminOpenClearCommission=function(pid,owed){
+  if(!U||U.role!=='admin')return showAuth();
+  const prov=providerById(Number(pid))||providerById(pid);
+  openSheet(`<div class="h1">✔ Clear Commission</div>
+  <div class="card" style="margin-top:9px"><div class="total-row"><span>Provider</span><b>${esc(prov?.business_name||'')}</b></div><div class="total-row big"><span>Amount to clear</span><span style="color:var(--g)">${money(owed)}</span></div></div>
+  <div class="mut" style="margin:10px 0">Confirm that JajiGo has received and verified this commission payment. This updates the provider's commission record. Only admin can clear commission.</div>
+  <button class="btn" id="clearGo" type="button">✔ Confirm & Clear Commission</button>`);
+  $('#clearGo').onclick=()=>{
+    S.commission_payments=S.commission_payments||[];
+    S.commission_payments.push({id:uid(),provider_id:Number(pid),amount:owed,note:'Cleared by admin',status:'confirmed',paid_at:new Date().toISOString()});
+    notify('prov',Number(pid),'✅ Commission cleared',`JajiGo cleared ${money(owed)} of commission for your account.`,'',null);
+    saveState();toast('✅ Commission cleared');closeSheet();renderAdmin();
+  };
+};
+
+function paintIdSearch(){
+  if(!U||U.role!=='admin')return showAuth();
+  $('#app').innerHTML=`<button class="btn sm sec" type="button" onclick="adminView='finance';renderAdmin()">← Finance</button>
+  <h2 class="sec">🔎 ID Search</h2>
+  <input id="idSearchQ" class="jg-admin-search" placeholder="Search Customer ID, Provider ID, or Order ID" oninput="jgRunIdSearch(this.value)">
+  <div id="idSearchResults" style="margin-top:12px"><div class="mut">Type to search.</div></div>`;
+}
+window.paintIdSearch=paintIdSearch;
+
+window.jgRunIdSearch=function(qRaw){
+  const box=$('#idSearchResults');if(!box)return;
+  const q=String(qRaw||'').trim().toLowerCase();
+  if(!q){box.innerHTML='<div class="mut">Type to search.</div>';return;}
+  const custs=S.customers.filter(c=>String(c.id).toLowerCase().includes(q)||(c.phone||'').toLowerCase().includes(q)||(c.full_name||'').toLowerCase().includes(q)||(jgCustomerIdValue(c)||'').toLowerCase().includes(q));
+  const provs=S.providers.filter(p=>String(p.id).toLowerCase().includes(q)||(p.business_name||'').toLowerCase().includes(q)||(jgProviderIdValue(p)||'').toLowerCase().includes(q));
+  const ords=S.orders.filter(o=>(o.order_code||'').toLowerCase().includes(q)||String(o.id).toLowerCase().includes(q));
+  let html='';
+  if(custs.length)html+='<h3 class="sec" style="font-size:14px">Customers</h3>'+custs.map(c=>`<div class="card" style="margin-bottom:7px"><b>${esc(c.full_name)}</b><div class="mut">${esc(c.phone)} · ${esc(jgCustomerIdValue(c)||'ID not yet assigned')}</div></div>`).join('');
+  if(provs.length)html+='<h3 class="sec" style="font-size:14px">Providers</h3>'+provs.map(p=>`<div class="card" style="margin-bottom:7px"><b>${esc(p.business_name)}</b><div class="mut">${esc(p.phone||p.user_phone||'')} · ${esc(jgProviderIdValue(p)||'ID not yet assigned')}</div></div>`).join('');
+  if(ords.length)html+='<h3 class="sec" style="font-size:14px">Orders</h3>'+ords.map(o=>`<div class="card" style="margin-bottom:7px;cursor:pointer" onclick="if(typeof adminOrderDetail==='function')adminOrderDetail('${esc(o.id)}')"><b>${esc(o.order_code)}</b><div class="mut">${esc(o.business_name)} · ${money(o.total)}</div></div>`).join('');
+  box.innerHTML=html||'<div class="empty"><div class="ei">🔎</div>No matches found.</div>';
+};
+
 })();
 </script>
 
