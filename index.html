@@ -100,6 +100,12 @@ h2.sec{font-size:16.5px;font-weight:800;margin:18px 0 10px}
 .toast.show{opacity:.95}
 .spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--g);border-radius:50%;animation:sp .7s linear infinite;margin:24px auto}
 @keyframes sp{to{transform:rotate(360deg)}}
+.jg-spinner{display:inline-block;width:15px;height:15px;border:2px solid rgba(0,0,0,.12);border-top-color:var(--g);border-radius:50%;animation:sp .7s linear infinite;flex:none;vertical-align:middle}
+.jg-inline-loading{display:flex;align-items:center;gap:8px;justify-content:center;padding:12px 8px;color:var(--mut);font-size:13px}
+.jg-blocking-overlay{position:fixed;inset:0;background:rgba(246,245,241,.86);backdrop-filter:blur(1px);z-index:9999;display:none;align-items:center;justify-content:center}
+.jg-blocking-overlay.show{display:flex}
+.jg-blocking-box{background:var(--card);border-radius:16px;padding:22px 28px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:13.5px;font-weight:700;color:var(--ink)}
+.jg-blocking-box .jg-spinner{width:26px;height:26px;border-width:3px}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none;align-items:flex-end}
 .sheet.open{display:flex}
 .sheet .inner{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-height:88%;overflow-y:auto;padding:16px 16px 26px;max-width:560px;margin:0 auto;animation:slideup .25s ease}
@@ -768,6 +774,48 @@ function jgShowNewOrderCodes(list){
     <button class="btn" style="margin-top:12px" onclick="closeSheet()">Got it</button>`);
 }
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2400)}
+
+/* ---------- Reusable loading-state helpers (buttons, inline sections, full-screen overlay) ----------
+   setButtonLoading(btn,true,'Signing in...') / setButtonLoading(btn,false)
+   Disables the button and shows the existing .loading spinner style; restores the original
+   label + enabled state afterwards. Safe to call even if btn is null/undefined. */
+function setButtonLoading(btn,isLoading,loadingText){
+  if(!btn)return;
+  if(isLoading){
+    if(btn.dataset.jgOrigHtml===undefined)btn.dataset.jgOrigHtml=btn.innerHTML;
+    btn.disabled=true;
+    btn.classList.add('loading');
+    btn.setAttribute('aria-busy','true');
+    if(loadingText)btn.setAttribute('aria-label',loadingText);
+  }else{
+    btn.disabled=false;
+    btn.classList.remove('loading');
+    btn.removeAttribute('aria-busy');
+    btn.removeAttribute('aria-label');
+    if(btn.dataset.jgOrigHtml!==undefined){btn.innerHTML=btn.dataset.jgOrigHtml;delete btn.dataset.jgOrigHtml;}
+  }
+}
+/* Small inline loading indicator for a list/section (e.g. "Loading products…").
+   setInlineLoading(el,true,'Loading products…') swaps in a spinner+label; false restores
+   whatever HTML was there before. */
+function setInlineLoading(el,isLoading,text){
+  if(!el)return;
+  if(isLoading){
+    if(el.dataset.jgOrigHtml===undefined)el.dataset.jgOrigHtml=el.innerHTML;
+    el.innerHTML=`<div class="jg-inline-loading"><span class="jg-spinner"></span>${esc(text||'Loading…')}</div>`;
+  }else if(el.dataset.jgOrigHtml!==undefined){
+    el.innerHTML=el.dataset.jgOrigHtml;delete el.dataset.jgOrigHtml;
+  }
+}
+/* Full-screen blocking overlay — only for operations that genuinely block the whole app.
+   showBlockingOverlay('Loading JajiGo…') / hideBlockingOverlay() */
+function showBlockingOverlay(text){
+  let ov=document.getElementById('jgBlockingOverlay');
+  if(!ov){ov=document.createElement('div');ov.id='jgBlockingOverlay';ov.className='jg-blocking-overlay';document.body.appendChild(ov);}
+  ov.innerHTML=`<div class="jg-blocking-box"><span class="jg-spinner"></span><div>${esc(text||'Please wait…')}</div></div>`;
+  ov.classList.add('show');
+}
+function hideBlockingOverlay(){const ov=document.getElementById('jgBlockingOverlay');if(ov)ov.classList.remove('show')}
 function normPhone(phone){
   let n=String(phone||'').replace(/\D/g,'');
   if(n.startsWith('234'))n='0'+n.slice(3);
@@ -1104,9 +1152,9 @@ function showAuth(initialMsg){
         const loginId=$('#pLoginId').value.trim(),password=$('#pLoginPass').value;
         if(!loginId){markAuthError('pLoginId','Please enter your phone number or email.');return;}
         if(!password){markAuthError('pLoginPass','Please enter your password.');return;}
-        btn.disabled=true;btn.classList.add('loading');
-        try{const r=await login(loginId,password);if(!r.ok){btn.disabled=false;btn.classList.remove('loading');initialMsg=r.err;render();return;}if(r.role!=='provider'){btn.disabled=false;btn.classList.remove('loading');initialMsg='This account is not a provider account.';render();return;}U={role:'provider',user:r.user,pending:r.pending||false,token:r.token||'local',remoteCustomer:false};S.current={role:'provider',user:U.user,token:U.token,pending:U.pending};saveState();await boot();}
-        catch(e){console.error('Provider login error:',e);btn.disabled=false;btn.classList.remove('loading');initialMsg='Provider login failed. Please try again.';render();}
+        setButtonLoading(btn,true,'🔄 Signing you in...');
+        try{const r=await login(loginId,password);if(!r.ok){setButtonLoading(btn,false);initialMsg=r.err;render();return;}if(r.role!=='provider'){setButtonLoading(btn,false);initialMsg='This account is not a provider account.';render();return;}U={role:'provider',user:r.user,pending:r.pending||false,token:r.token||'local',remoteCustomer:false};S.current={role:'provider',user:U.user,token:U.token,pending:U.pending};saveState();await boot();}
+        catch(e){console.error('Provider login error:',e);setButtonLoading(btn,false);initialMsg='Provider login failed. Please try again.';render();}
       };
     }
 
@@ -1136,16 +1184,16 @@ function showAuth(initialMsg){
         const wa=normPhone($('#pWhatsApp').value),phone=normPhone($('#pPhone').value);
         if(!/^0\d{10}$/.test(wa)){markAuthError('pWhatsApp','Please enter a valid Nigerian WhatsApp number.');return;}
         if(!$('#pArea').value.trim()){markAuthError('pArea','Please enter your business area or neighbourhood.');return;}
-        btn.disabled=true;btn.classList.add('loading');
+        setButtonLoading(btn,true,'🔄 Creating your account...');
         try{
           const typeKey=$('#pCat').value,customType=$('#pCustomType')?.value.trim()||'';
-          if(typeKey==='other'&&!customType){btn.disabled=false;btn.classList.remove('loading');markAuthError('pCustomType','Please specify your business type.');return;}
+          if(typeKey==='other'&&!customType){setButtonLoading(btn,false);markAuthError('pCustomType','Please specify your business type.');return;}
           const matched=(S.categories||[]).find(c=>String(c.slug||'').toLowerCase()===typeKey||String(c.name||'').toLowerCase().replace(/[^a-z0-9]+/g,'_')===typeKey);
           const catId=matched?.id||6;
           const r=await registerProvider({name:$('#pName').value,business:$('#pBusiness').value,phone:phone,whatsapp:wa,email:$('#pEmail').value,password:pass,password_confirm:pass2,category_id:catId,business_type:typeKey,business_type_custom:customType,address:$('#pAddress').value,area:$('#pArea').value,desc:$('#pDesc').value,opening_time:$('#pOpen').value,closing_time:$('#pClose').value,delivery_mode:$('#pDelivery').value,logo_url:$('#pLogo').value,lat:window.jgPendingProviderLocation?.lat||null,lng:window.jgPendingProviderLocation?.lng||null,gps_accuracy:window.jgPendingProviderLocation?.accuracy||null});
-          if(!r.ok){btn.disabled=false;btn.classList.remove('loading');initialMsg=r.err;render();return;}
+          if(!r.ok){setButtonLoading(btn,false);initialMsg=r.err;render();return;}
           U={role:'provider',user:r.provider,pending:true,token:'local',remoteCustomer:false};S.current={role:'provider',user:U.user,token:'local',pending:true};saveState();renderProviderApplicationSuccess(r.provider);
-        }catch(e){console.error('Provider registration error:',e);btn.disabled=false;btn.classList.remove('loading');initialMsg='Provider registration failed. Please try again.';render();}
+        }catch(e){console.error('Provider registration error:',e);setButtonLoading(btn,false);initialMsg='Provider registration failed. Please try again.';render();}
       };
       return;
     }
@@ -1153,9 +1201,12 @@ function showAuth(initialMsg){
     if(mode==='login'&&!providerScreen||isRegister&&!providerScreen){
       jgGoogleCallback=async(response)=>{
         if(!response?.credential){initialMsg='Google sign-in did not return a credential. Please try again.';render();return;}
-        const loading=$('#authLoading'),gbtn=$('#googleBtn');if(loading)loading.style.display='block';if(gbtn)gbtn.style.pointerEvents='none';
-        try{const r=await jgGoogleCustomerLogin(response.credential);if(!r.ok){initialMsg=r.err||'Google sign-in failed. Please try again.';render();return;}}
-        catch(e){console.error('JajiGo Google login error:',e);initialMsg='Google sign-in failed. Please try again.';render();}
+        const loading=$('#authLoading'),gbtn=$('#googleBtn');
+        if(loading){loading.textContent='🔄 Connecting to Google...';loading.style.display='block';}
+        if(gbtn)gbtn.style.pointerEvents='none';
+        if($('#aGo'))setButtonLoading($('#aGo'),true,'🔄 Connecting to Google...');
+        try{const r=await jgGoogleCustomerLogin(response.credential);if(!r.ok){if(loading)loading.style.display='none';if(gbtn)gbtn.style.pointerEvents='';setButtonLoading($('#aGo'),false);initialMsg=r.err||'Google sign-in failed. Please try again.';render();return;}}
+        catch(e){console.error('JajiGo Google login error:',e);if(loading)loading.style.display='none';if(gbtn)gbtn.style.pointerEvents='';setButtonLoading($('#aGo'),false);initialMsg='Google sign-in failed. Please try again.';render();}
       };
       if(mode==='login')renderJajiGoGoogleButton();
       $('#aGo').onclick=async()=>{
@@ -1163,15 +1214,17 @@ function showAuth(initialMsg){
         const ph=$('#aPhone').value.trim(),pw=$('#aPass').value;
         if(!ph){markAuthError('aPhone','Please enter your phone number or email.');return;}
         if(!pw){markAuthError('aPass','Please enter your password.');return;}
-        btn.disabled=true;btn.style.opacity='.72';if($('#authLoading'))$('#authLoading').style.display='block';
+        const loadingLabel=mode==='register'?'🔄 Creating your account...':'🔄 Signing you in...';
+        setButtonLoading(btn,true,loadingLabel);
+        const authLoadingEl=$('#authLoading');if(authLoadingEl){authLoadingEl.textContent=loadingLabel;authLoadingEl.style.display='block';}
         try{
           if(mode==='register'){
-            const r=await registerCustomer(ph,$('#aEmail').value.trim(),pw,$('#aName').value.trim());if(!r.ok){initialMsg=r.err;render();return;}U={role:'customer',user:r.user,token:r.token,remoteCustomer:!!r.remoteCustomer};
+            const r=await registerCustomer(ph,$('#aEmail').value.trim(),pw,$('#aName').value.trim());if(!r.ok){setButtonLoading(btn,false);if(authLoadingEl)authLoadingEl.style.display='none';initialMsg=r.err;render();return;}U={role:'customer',user:r.user,token:r.token,remoteCustomer:!!r.remoteCustomer};
           }else{
-            const r=await login(ph,pw);if(!r.ok){initialMsg=r.err;render();return;}if(r.role==='admin'&&r.remoteAdmin&&r.token){U={role:'admin',user:r.user,token:r.token,remoteAdmin:true};S.current={role:'admin',user:r.user,token:r.token};saveState();await boot();return;}U={role:r.role,user:r.user,pending:r.pending||false,token:r.token,remoteCustomer:!!r.remoteCustomer};if(U.role!=='customer'){initialMsg='This is not a customer account. Please choose Provider login or Admin login.';render();return;}setLang(U.user.uiLang||'en');
+            const r=await login(ph,pw);if(!r.ok){setButtonLoading(btn,false);if(authLoadingEl)authLoadingEl.style.display='none';initialMsg=r.err;render();return;}if(r.role==='admin'&&r.remoteAdmin&&r.token){U={role:'admin',user:r.user,token:r.token,remoteAdmin:true};S.current={role:'admin',user:r.user,token:r.token};saveState();await boot();return;}U={role:r.role,user:r.user,pending:r.pending||false,token:r.token,remoteCustomer:!!r.remoteCustomer};if(U.role!=='customer'){setButtonLoading(btn,false);if(authLoadingEl)authLoadingEl.style.display='none';initialMsg='This is not a customer account. Please choose Provider login or Admin login.';render();return;}setLang(U.user.uiLang||'en');
           }
           S.current={role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};saveState();await new Promise(resolve=>setTimeout(resolve,350));await boot();
-        }catch(e){console.error('JajiGo auth error:',e);initialMsg='Login could not open this account. Please try again.';render();}
+        }catch(e){console.error('JajiGo auth error:',e);setButtonLoading(btn,false);if(authLoadingEl)authLoadingEl.style.display='none';initialMsg='Login could not open this account. Please try again.';render();}
       };
     }
   }
@@ -1648,7 +1701,14 @@ function openCheckout(confirmedFirst){
       <div class="card" style="margin-top:10px">${groups.map((g,i)=>`<div class="row" style="padding:7px 0;border-bottom:1px solid var(--line)"><span>🏪 ${esc(g.provider.business_name)}<br><small class="mut">${modes[i]==='customer_pickup'?L.pickup:L.pdelivery}</small></span><b>${money(g.subtotal+(modes[i]==='provider_delivery'?g.delivery_fee:0))}</b></div>`).join('')}
       <div class="row" style="padding:7px 0"><span>📞</span><b>${esc(phone)}</b></div><div class="row" style="padding:7px 0"><span>${L.pay_with}</span><b>${pm==='cash_on_delivery'?L.cod:L.bank}</b></div><div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(sums.total)}</span></div></div>
       <button class="btn" style="margin-top:14px" id="cFinal">✅ ${L.confirm_order}</button><button class="btn sec" style="margin-top:8px" onclick="openCheckout(true)">← Edit</button>`);
-    $('#cFinal').onclick=()=>placeOrders(modes,address,phone,pm,groups,subtotal);
+    $('#cFinal').onclick=()=>{
+      const btn=$('#cFinal');if(btn.disabled)return;
+      setButtonLoading(btn,true,'🔄 Placing your order...');
+      setTimeout(()=>{
+        try{placeOrders(modes,address,phone,pm,groups,subtotal);}
+        finally{setButtonLoading(btn,false);}
+      },20);
+    };
   };
 }
 /* ---- Stock helpers: tracked stock is checked at cart/checkout, deducted on order, restored on cancel/reject ---- */
@@ -2825,7 +2885,7 @@ async function renderAdmin(){
     <h2 class="sec">✅ Provider Approvals</h2>
     <div style="display:flex;flex-direction:column;gap:9px">${S.providers.map(p=>`<div class="card" style="margin-bottom:10px"><div class="row"><div><b>${esc(p.business_name||'Provider')}</b><div class="mut">${esc(p.full_name||p.owner_name||'')} · ${esc(p.phone||p.user_phone||'')}</div></div><span class="pill ${p.status==='approved'?'':'amber'}">${esc(p.status||'pending')}</span></div>
     <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">View application details</summary><div style="margin-top:9px;display:grid;gap:6px;font-size:13px"><div><b>Full name:</b> ${esc(p.full_name||p.owner_name||'—')}</div><div><b>Phone:</b> ${esc(p.phone||p.user_phone||'—')}</div><div><b>WhatsApp:</b> ${esc(p.whatsapp||'—')}</div><div><b>Email:</b> ${esc(p.email||'—')}</div><div><b>Business:</b> ${esc(p.business_name||'—')}</div><div><b>Business type:</b> ${esc(p.business_type_custom||categoryById(p.category_id)?.name||p.business_type||'—')}</div><div><b>What they provide:</b> ${esc(p.desc||'—')}</div><div><b>Address:</b> ${esc(p.address||'—')}</div><div><b>Area:</b> ${esc(p.area||'—')}</div><div><b>Hours:</b> ${esc(p.opening_time||'—')} – ${esc(p.closing_time||'—')}</div><div><b>Fulfilment:</b> ${esc(p.delivery_mode||'—')}</div><div><b>GPS:</b> ${p.lat!=null&&p.lng!=null?esc(String(p.lat)+', '+String(p.lng)):'Not provided'}</div><div><b>Logo:</b> ${p.logo_url?`<a href="${esc(p.logo_url)}" target="_blank" rel="noopener">View</a>`:'Not provided'}</div><div class="mut">Password is never shown to admin.</div></div></details>
-    ${p.status==='pending'?`<div style="display:flex;gap:8px;margin-top:9px"><button class="btn sm" onclick="adminApprove(${p.id},1)">✔ Approve</button><button class="btn sm warn" onclick="adminApprove(${p.id},0)">✖ Reject</button></div>`:''}</div>`).join('')||'<div class="empty">No providers</div>'}</div>`;
+    ${p.status==='pending'?`<div style="display:flex;gap:8px;margin-top:9px"><button class="btn sm" onclick="adminApprove(${p.id},1,this)">✔ Approve</button><button class="btn sm warn" onclick="adminApprove(${p.id},0,this)">✖ Reject</button></div>`:''}</div>`).join('')||'<div class="empty">No providers</div>'}</div>`;
   }
   function paintComm(){
     const pend=(S.commission_payments||[]).filter(c=>c.status==='pending');
@@ -3046,6 +3106,7 @@ async function renderAdmin(){
   window.adminView=window.adminView||'dash';
   const __adminView=window.adminView;
   if(__adminView==='appr' && U?.token && U.token!=='local'){
+    setInlineLoading($('#app'),true,'Loading providers…');
     const remote=await apiGet('/api/admin/providers');
     if(remote.ok&&Array.isArray(remote.providers)){
       S.providers=remote.providers.map(p=>({...p,id:Number(p.id),user_id:Number(p.user_id),category_id:p.category_id==null?null:Number(p.category_id),status:p.status||'pending',full_name:p.owner_name||p.full_name,user_phone:p.user_phone||p.phone,email:p.owner_email||p.email,desc:p.application_description||p.desc||'',whatsapp:p.whatsapp||'',business_type:p.business_type||'',business_type_custom:p.business_type_custom||'',area:p.area||'',opening_time:p.opening_time||'',closing_time:p.closing_time||'',delivery_mode:p.delivery_mode||'',logo_url:p.logo_url||'',lat:p.lat,lng:p.lng}));
@@ -3269,11 +3330,16 @@ window.adminToggleProduct=function(id){
 window.adminDeleteProduct=function(id){
   if(!U||U.role!=='admin')return;const x=S.products.find(p=>String(p.id)===String(id));if(!x)return toast('Product not found.');if(!confirm('Delete '+x.name+'?'))return;S.products=S.products.filter(p=>String(p.id)!==String(id));saveState();toast('🗑 Product deleted');renderAdmin();
 };
-window.adminApprove=async function(pid,approve){
+window.adminApprove=async function(pid,approve,btn){
   if(!U||U.role!=='admin')return toast('Admin access required.');
   const p=providerById(pid);
   if(U.token&&U.token!=='local'){
-    const r=await fetch(JAJIGO_API+'/api/admin/providers/'+encodeURIComponent(pid)+'/status',{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+U.token},body:JSON.stringify({status:approve?'approved':'rejected'})}).then(async res=>({ok:res.ok,data:await res.json().catch(()=>({}))})).catch(()=>({ok:false,data:{}}));
+    if(btn&&btn.disabled)return;
+    setButtonLoading(btn,true,approve?'🔄 Approving...':'🔄 Rejecting...');
+    let r;
+    try{
+      r=await fetch(JAJIGO_API+'/api/admin/providers/'+encodeURIComponent(pid)+'/status',{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+U.token},body:JSON.stringify({status:approve?'approved':'rejected'})}).then(async res=>({ok:res.ok,data:await res.json().catch(()=>({}))})).catch(()=>({ok:false,data:{}}));
+    }finally{setButtonLoading(btn,false);}
     if(!r.ok||!r.data.ok)return toast(r.data.error||'Could not update provider.');
     const updated=r.data.provider;
     const local=providerById(pid);if(local)Object.assign(local,updated);
@@ -3400,7 +3466,7 @@ window.openReview=function(id){const o=S.orders.find(x=>x.id===id);if(!o)return;
 window.openCheckout=function(){
  const items=getCartItems();if(!items.length)return toast(L.empty_cart);const subtotal=cartSubtotal(),df=cartTotalDelivery(),prov=items[0].provider,myProfile=S.customers.find(c=>c.id===U.user.id);let coupon=null;
  function paint(){const disc=coupon?jgDiscount(coupon,subtotal):0,total=Math.max(0,subtotal+df-disc);openSheet(`<div class="h1">${L.checkout}</div><div class="card" style="margin-top:10px">${items.map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product.name)} ×${i.quantity}</span><b>${money(i.product.price*i.quantity)}</b></div>`).join('')}<div class="total-row"><span>${L.subtotal}</span><b>${money(subtotal)}</b></div><div class="total-row"><span>${L.del_fee}</span><b>${money(df)}</b></div>${coupon?`<div class="total-row"><span>🎟️ ${esc(coupon.code)}</span><b style="color:var(--g)">−${money(disc)}</b></div>`:''}<div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div></div><div class="field" style="margin-top:10px"><label>🎟️ Coupon code</label><div class="row" style="gap:7px"><input id="cpCode" placeholder="e.g. JAJI500" style="flex:1"><button class="btn sm" id="cpApply">Apply</button></div><div class="mut" id="cpMsg" style="font-size:12px;margin-top:4px"></div></div><div class="field"><label>Mode</label><select id="cMode">${prov.delivery_mode!=='customer_pickup'?`<option value="provider_delivery">${L.pdelivery} (${money(df)})</option>`:''}${prov.delivery_mode!=='provider_delivery'?`<option value="customer_pickup">${L.pickup}</option>`:''}</select></div><div class="field" id="addrWrap"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div><div class="field"><label>${L.phone_lbl}</label><input id="cPhone" value="${esc(myProfile?.phone||'')}"></div><div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option></select></div><button class="btn" id="cGo">👉 ${L.confirm_order} · ${money(total)}</button>`);
- const refresh=()=>$('#addrWrap').style.display=$('#cMode').value==='customer_pickup'?'none':'block';$('#cMode').onchange=refresh;refresh();$('#cpApply').onclick=()=>{const code=$('#cpCode').value.trim().toUpperCase();const c=S.coupons.find(x=>String(x.code).toUpperCase()===code);if(!jgCouponValid(c,subtotal,prov.id)){$('#cpMsg').textContent='Coupon is invalid, inactive, expired, or does not apply to this order.';return}coupon=c;paint()};$('#cGo').onclick=()=>{const mode=$('#cMode').value,address=$('#cAddr').value.trim(),phone=$('#cPhone').value.trim(),pm=$('#cPay').value;if(mode==='provider_delivery'&&!address)return toast(L.need_addr);if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);const disc=coupon?jgDiscount(coupon,subtotal):0;const total=Math.max(0,subtotal+df-disc);const before=S.orders.length;placeOrder(mode,address,phone,pm,items,subtotal,df,total);const o=S.orders[0];if(o&&S.orders.length>=before){o.coupon_code=coupon?.code||'';o.discount=disc;o.campaign_id=coupon?.campaign_id||null;saveState()}}}
+ const refresh=()=>$('#addrWrap').style.display=$('#cMode').value==='customer_pickup'?'none':'block';$('#cMode').onchange=refresh;refresh();$('#cpApply').onclick=()=>{const code=$('#cpCode').value.trim().toUpperCase();const c=S.coupons.find(x=>String(x.code).toUpperCase()===code);if(!jgCouponValid(c,subtotal,prov.id)){$('#cpMsg').textContent='Coupon is invalid, inactive, expired, or does not apply to this order.';return}coupon=c;paint()};$('#cGo').onclick=()=>{const btn=$('#cGo');if(btn.disabled)return;const mode=$('#cMode').value,address=$('#cAddr').value.trim(),phone=$('#cPhone').value.trim(),pm=$('#cPay').value;if(mode==='provider_delivery'&&!address)return toast(L.need_addr);if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);setButtonLoading(btn,true,'🔄 Placing your order...');setTimeout(()=>{try{const disc=coupon?jgDiscount(coupon,subtotal):0;const total=Math.max(0,subtotal+df-disc);const before=S.orders.length;placeOrder(mode,address,phone,pm,items,subtotal,df,total);const o=S.orders[0];if(o&&S.orders.length>=before){o.coupon_code=coupon?.code||'';o.discount=disc;o.campaign_id=coupon?.campaign_id||null;saveState()}}finally{setButtonLoading(btn,false)}},20)}}
  paint();
 };
 const __oldRenderAdmin=renderAdmin;
@@ -3754,10 +3820,10 @@ window.sendAI=async function(){
   if(jajigoGeminiBusy){toast(uiLang==='ha'?'JajiGo AI na aiki tukuna. Jira kaɗan.':uiLang==='pcm'?'JajiGo AI still dey work. Wait small.':'JajiGo AI is still working. Please wait a moment.');return;}
   const box=$('#aiBox');if(!box)return;
   jajigoGeminiBusy=true;
-  const button=$('#aiGo');if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
+  const button=$('#aiGo');setButtonLoading(button,true,'✨ Thinking...');
   input.value='';
   jgGeminiAppend(message,'user');
-  const spin=document.createElement('div');spin.id='jgGeminiSpin';spin.className='spin';spin.setAttribute('aria-label','JajiGo AI loading');box.appendChild(spin);box.scrollTop=box.scrollHeight;
+  const spin=document.createElement('div');spin.id='jgGeminiSpin';spin.className='jg-inline-loading';spin.setAttribute('aria-label','JajiGo AI loading');spin.innerHTML='<span class="jg-spinner"></span>✨ JajiGo AI is thinking...';box.appendChild(spin);box.scrollTop=box.scrollHeight;
   window.jajigoGeminiStatus='connecting';jgGeminiEnsureStatus();
   try{
     if(typeof remember==='function')remember(message);
@@ -3774,7 +3840,7 @@ window.sendAI=async function(){
     jgGeminiShowError(err?.message||'Please try again in a moment.');
   }finally{
     jajigoGeminiBusy=false;
-    if(button){button.disabled=false;button.removeAttribute('aria-busy');}
+    setButtonLoading(button,false);
   }
 };
 
