@@ -4451,11 +4451,11 @@ nav.tabs button.on .ti{
    placeholder is shown so the UI is ready to receive the real value later. */
 function jgCustomerIdValue(c){
   if(!c)return null;
-  return c.customer_code||c.jajigo_customer_id||c.customer_id_code||null;
+  return c.customer_code||c.jajigo_customer_id||c.customer_id_code||c.public_id||null;
 }
 function jgProviderIdValue(p){
   if(!p)return null;
-  return p.provider_code||p.jajigo_provider_id||p.provider_id_code||null;
+  return p.provider_code||p.jajigo_provider_id||p.provider_id_code||p.provider_public_id||p.public_id||null;
 }
 window.jgCustomerIdValue=jgCustomerIdValue;
 window.jgProviderIdValue=jgProviderIdValue;
@@ -4807,8 +4807,8 @@ window.jgRunIdSearch=function(qRaw){
     if(!U?.token||U.token==='local')return false;
     const r=await apiGet('/api/bootstrap');
     if(!r.ok){console.warn('Bootstrap sync failed:',r.err);return false;}
-    if(Array.isArray(r.customers))S.customers=r.customers.map(x=>({...x,id:Number(x.id)}));
-    if(Array.isArray(r.providers))S.providers=r.providers.map(p=>({...p,id:Number(p.id),user_id:Number(p.user_id),category_id:p.category_id==null?null:Number(p.category_id)}));
+    if(Array.isArray(r.customers))S.customers=r.customers.map(x=>({...x,id:Number(x.id),customer_code:x.customer_code||x.jajigo_customer_id||x.public_id||null,jajigo_customer_id:x.jajigo_customer_id||x.customer_code||x.public_id||null}));
+    if(Array.isArray(r.providers))S.providers=r.providers.map(p=>({...p,id:Number(p.id),user_id:Number(p.user_id),category_id:p.category_id==null?null:Number(p.category_id),provider_code:p.provider_code||p.jajigo_provider_id||p.provider_public_id||p.public_id||null,jajigo_provider_id:p.jajigo_provider_id||p.provider_code||p.provider_public_id||p.public_id||null}));
     if(Array.isArray(r.products))S.products=r.products.map(p=>({...p,id:Number(p.id),provider_id:Number(p.provider_id),category_id:p.category_id==null?null:Number(p.category_id),price:Number(p.price||0),stock:Number(p.stock_qty??p.stock??0),is_available:p.is_available!==false,desc:p.description||p.desc||'',icon:p.icon||'📦'}));
     if(Array.isArray(r.orders)){S.orders=r.orders.map(normalizeRemoteOrder);}
     if(U.role==='provider'){
