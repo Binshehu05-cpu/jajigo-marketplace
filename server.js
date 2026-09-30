@@ -370,6 +370,8 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     const user = result.rows[0];
+    user.customer_code = user.public_id || null;
+    user.jajigo_customer_id = user.public_id || null;
     ok(res, {
       message: 'Account created successfully.',
       token: tokenFor(user),
@@ -387,17 +389,20 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const email = String(req.body.email || '').trim().toLowerCase();
+    const identifier = String(req.body.email || req.body.phone || '').trim();
+    const email = identifier.toLowerCase();
     const password = String(req.body.password || '');
 
-    if (!email || !password) {
-      return fail(res, 400, 'Email and password are required.');
+    if (!identifier || !password) {
+      return fail(res, 400, 'Email/phone and password are required.');
     }
 
     const result = await pool.query(
       `SELECT id,phone,full_name,email,password_hash,avatar_url,role,status,public_id
-       FROM users WHERE LOWER(email)=LOWER($1)`,
-      [email]
+       FROM users WHERE LOWER(email)=LOWER($1) OR phone=$2
+       ORDER BY CASE WHEN LOWER(email)=LOWER($1) THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [email, normPhone(identifier)]
     );
 
     if (!result.rowCount) return fail(res, 401, 'Wrong email or password.');
@@ -414,6 +419,23 @@ app.post('/api/auth/login', async (req, res) => {
     if (!passwordCorrect) return fail(res, 401, 'Wrong email or password.');
 
     delete user.password_hash;
+    if (user.role === 'provider') {
+      const pr = await pool.query(
+        `SELECT id, public_id, business_name, status FROM providers WHERE user_id=$1`,
+        [user.id]
+      );
+      if (pr.rowCount) {
+        user.provider_id = pr.rows[0].id;
+        user.provider_public_id = pr.rows[0].public_id || null;
+        user.provider_code = pr.rows[0].public_id || null;
+        user.jajigo_provider_id = pr.rows[0].public_id || null;
+        user.business_name = pr.rows[0].business_name;
+        user.provider_status = pr.rows[0].status;
+      }
+    } else if (user.role === 'customer') {
+      user.customer_code = user.public_id || null;
+      user.jajigo_customer_id = user.public_id || null;
+    }
 
     ok(res, {
       message: 'Login successful.',
@@ -509,6 +531,100 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
+/* ========================= PROVIDER REGISTRATION ========================= */
+app.post('/api/providers/register', async (req, res) => {
+  const c = await pool.connect();
+  try {
+    const b = req.body || {};
+    const phone = normPhone(b.phone);
+    const email = String(b.email || '').trim().toLowerCase();
+    const name = String(b.name || '').trim();
+    const business = String(b.business || '').trim();
+    const address = String(b.address || '').trim();
+    const area = String(b.area || '').trim();
+    const whatsapp = normPhone(b.whatsapp || phone);
+    const description = String(b.desc || b.description || '').trim();
+    const password = String(b.password || '');
+    const passwordConfirm = String(b.password_confirm || '');
+    const categoryId = positiveInt(b.category_id);
+    const businessType = String(b.business_type || '').trim() || null;
+    const businessTypeCustom = String(b.business_type_custom || '').trim() || null;
+    const openingTime = b.opening_time ? String(b.opening_time).trim() : null;
+    const closingTime = b.closing_time ? String(b.closing_time).trim() : null;
+    const deliveryMode = String(b.delivery_mode || 'provider_delivery').trim();
+    const logoUrl = String(b.logo_url || '').trim() || null;
+    const lat = b.lat === undefined || b.lat === null || b.lat === '' ? null : Number(b.lat);
+    const lng = b.lng === undefined || b.lng === null || b.lng === '' ? null : Number(b.lng);
+
+    if (name.length < 2) return fail(res, 400, 'Full name is required.');
+    if (!/^0\d{10}$/.test(phone)) return fail(res, 400, 'Invalid Nigerian phone number.');
+    if (!/^0\d{10}$/.test(whatsapp)) return fail(res, 400, 'Invalid Nigerian WhatsApp number.');
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'Please enter a valid email address.');
+    if (password.length < 6) return fail(res, 400, 'Password must be at least 6 characters.');
+    if (password !== passwordConfirm) return fail(res, 400, 'Passwords do not match.');
+    if (business.length < 2) return fail(res, 400, 'Business name is required.');
+    if (!address) return fail(res, 400, 'Business address is required.');
+    if (!area) return fail(res, 400, 'Business area is required.');
+    if (!categoryId) return fail(res, 400, 'Business category is required.');
+    if (!['provider_delivery','customer_pickup','both'].includes(deliveryMode)) return fail(res, 400, 'Invalid delivery mode.');
+    if (b.lat !== undefined && b.lat !== null && b.lat !== '' && !Number.isFinite(lat)) return fail(res, 400, 'Invalid latitude.');
+    if (b.lng !== undefined && b.lng !== null && b.lng !== '' && !Number.isFinite(lng)) return fail(res, 400, 'Invalid longitude.');
+
+    await c.query('BEGIN');
+    const exists = await c.query(
+      'SELECT id FROM users WHERE phone=$1 OR LOWER(email)=LOWER($2)',
+      [phone, email]
+    );
+    if (exists.rowCount) {
+      await c.query('ROLLBACK');
+      return fail(res, 409, 'Phone number or email already has an account.');
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+    const userResult = await c.query(
+      `INSERT INTO users (phone,full_name,email,password_hash,role,status)
+       VALUES ($1,$2,$3,$4,'provider','active')
+       RETURNING id,phone,full_name,email,avatar_url,role,status,public_id`,
+      [phone, name, email, hash]
+    );
+    const user = userResult.rows[0];
+
+    const providerResult = await c.query(
+      `INSERT INTO providers
+       (user_id,business_name,category_id,application_description,address,area,whatsapp,
+        business_type,business_type_custom,opening_time,closing_time,delivery_mode,logo_url,lat,lng,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')
+       RETURNING *`,
+      [user.id,business,categoryId,description,address,area,whatsapp,businessType,businessTypeCustom,
+       openingTime,closingTime,deliveryMode,logoUrl,lat,lng]
+    );
+    const provider = providerResult.rows[0];
+    provider.provider_code = provider.public_id || null;
+    provider.jajigo_provider_id = provider.public_id || null;
+    provider.provider_public_id = provider.public_id || null;
+    user.provider_id = provider.id;
+    user.provider_code = provider.public_id || null;
+    user.jajigo_provider_id = provider.public_id || null;
+
+    await c.query('COMMIT');
+    ok(res, {
+      message: 'Provider application submitted successfully.',
+      token: tokenFor(user),
+      user,
+      provider,
+      pending: true,
+      remoteProvider: true
+    });
+  } catch (e) {
+    try { await c.query('ROLLBACK'); } catch {}
+    console.error('Provider registration error:', e);
+    if (e.code === '23505') return fail(res, 409, 'Phone number, email, or provider record already exists.');
+    fail(res, 500, 'Provider registration failed.');
+  } finally {
+    c.release();
+  }
+});
+
 app.get('/api/bootstrap', auth, async (req, res) => {
   try {
     const customers = req.auth.role === 'admin'
@@ -548,9 +664,23 @@ app.get('/api/bootstrap', auth, async (req, res) => {
     const [c,v,o,pr] = await Promise.all([
       customers,
       pool.query(
-        `SELECT p.*,p.public_id AS provider_public_id,u.phone AS user_phone,u.full_name AS owner_name
-         FROM providers p JOIN users u ON u.id=p.user_id
-         WHERE p.status='approved' ORDER BY p.id`
+        req.auth.role === 'admin'
+          ? `SELECT p.*,p.public_id AS provider_public_id,u.phone AS user_phone,u.full_name AS owner_name,u.email AS owner_email
+             FROM providers p JOIN users u ON u.id=p.user_id
+             ORDER BY p.id`
+          : req.auth.role === 'provider'
+            ? `SELECT p.*,p.public_id AS provider_public_id,u.phone AS user_phone,u.full_name AS owner_name,u.email AS owner_email
+               FROM providers p JOIN users u ON u.id=p.user_id
+               WHERE p.user_id=$1
+               UNION ALL
+               SELECT p.*,p.public_id AS provider_public_id,u.phone AS user_phone,u.full_name AS owner_name,u.email AS owner_email
+               FROM providers p JOIN users u ON u.id=p.user_id
+               WHERE p.status='approved' AND p.user_id<>$1
+               ORDER BY id`
+            : `SELECT p.*,p.public_id AS provider_public_id,u.phone AS user_phone,u.full_name AS owner_name,u.email AS owner_email
+               FROM providers p JOIN users u ON u.id=p.user_id
+               WHERE p.status='approved' ORDER BY p.id`,
+        req.auth.role === 'provider' ? [req.auth.sub] : []
       ),
       orders,
       pool.query(
@@ -561,9 +691,20 @@ app.get('/api/bootstrap', auth, async (req, res) => {
       )
     ]);
 
+    const customersOut = c.rows.map(x => ({
+      ...x,
+      customer_code: x.customer_code || x.public_id || null,
+      jajigo_customer_id: x.jajigo_customer_id || x.customer_code || x.public_id || null
+    }));
+    const providersOut = v.rows.map(x => ({
+      ...x,
+      provider_code: x.provider_code || x.provider_public_id || x.public_id || null,
+      jajigo_provider_id: x.jajigo_provider_id || x.provider_public_id || x.public_id || null
+    }));
+
     ok(res, {
-      customers: c.rows,
-      providers: v.rows,
+      customers: customersOut,
+      providers: providersOut,
       orders: o.rows,
       products: pr.rows
     });
@@ -900,17 +1041,18 @@ app.post('/api/orders', auth, role('customer'), async (req, res) => {
     const commission = round2(commissionBase * COMMISSION_RATE / 100);
     const providerNet = round2(total - commission);
 
+    const verificationCode = String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
     const o = await c.query(
       `INSERT INTO orders
         (customer_id,provider_id,status,payment_method,payment_status,
          delivery_mode,address,customer_phone,subtotal,delivery_fee,total,
-         commission,provider_net,items,payment_model)
-       VALUES ($1,$2,'pending',$3,'pending',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         commission,provider_net,items,payment_model,verification_code,verification_verified,verified_at)
+       VALUES ($1,$2,'pending',$3,'pending',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,false,NULL)
        RETURNING *`,
       [
         req.auth.sub, providerId, paymentMethod, deliveryMode, address,
         customerPhone, subtotal, deliveryFee, total, commission, providerNet,
-        JSON.stringify(lineItems), paymentModel
+        JSON.stringify(lineItems), paymentModel, verificationCode
       ]
     );
 
@@ -946,11 +1088,14 @@ app.patch('/api/orders/:id/status', auth, role('provider','admin'), async (req, 
 
     const allowed = {
       pending: ['accepted','rejected','cancelled'],
-      accepted: ['shipped','cancelled'],
-      shipped: ['delivered','cancelled'],
+      accepted: ['preparing','cancelled'],
+      preparing: ['ready','cancelled'],
+      ready: ['on_the_way','delivered','cancelled'],
+      on_the_way: ['delivered'],
+      delivered: ['completed'],
+      completed: [],
       rejected: [],
-      cancelled: [],
-      delivered: []
+      cancelled: []
     };
 
     await c.query('BEGIN');
@@ -1017,6 +1162,51 @@ app.patch('/api/orders/:id/status', auth, role('provider','admin'), async (req, 
 
 // Manual settlement endpoint — lets an admin retry settlement (e.g. after
 // verification lands late) without needing another status transition.
+app.post('/api/orders/:id/verify-delivery', auth, role('provider'), async (req, res) => {
+  const c = await pool.connect();
+  try {
+    const id = positiveInt(req.params.id);
+    const code = String(req.body.code || '').replace(/\D/g, '');
+    if (!id) return fail(res, 400, 'Invalid order ID.');
+    if (!/^\d{6}$/.test(code)) return fail(res, 400, 'Enter the 6-digit delivery code.');
+
+    await c.query('BEGIN');
+    const r = await c.query(
+      `SELECT o.*,p.user_id FROM orders o JOIN providers p ON p.id=o.provider_id WHERE o.id=$1 FOR UPDATE`,
+      [id]
+    );
+    if (!r.rowCount) { await c.query('ROLLBACK'); return fail(res,404,'Order not found.'); }
+    const order = r.rows[0];
+    if (String(order.user_id) !== String(req.auth.sub)) { await c.query('ROLLBACK'); return fail(res,403,'Not your order.'); }
+    if (order.status !== 'delivered') { await c.query('ROLLBACK'); return fail(res,400,'Order must be marked delivered before verification.'); }
+    if (order.verification_verified) { await c.query('ROLLBACK'); return ok(res,{message:'Delivery already verified.',order}); }
+    if (order.verify_locked) { await c.query('ROLLBACK'); return fail(res,423,'Delivery code entry is locked. Contact JajiGo admin.'); }
+    if (code !== String(order.verification_code || '')) {
+      const attempts = Number(order.verify_attempts || 0) + 1;
+      const locked = attempts >= 5;
+      const u = await c.query(
+        `UPDATE orders SET verify_attempts=$1,verify_locked=$2,verify_locked_at=CASE WHEN $2 THEN NOW() ELSE verify_locked_at END,updated_at=NOW() WHERE id=$3 RETURNING *`,
+        [attempts,locked,id]
+      );
+      await c.query('COMMIT');
+      return fail(res, 400, locked ? 'Too many wrong codes. Order locked.' : `Wrong code. ${5-attempts} attempt(s) left.`);
+    }
+
+    await c.query(`UPDATE orders SET verification_verified=true,verified_at=NOW(),updated_at=NOW() WHERE id=$1`,[id]);
+    const settlement = await settleOrder(c,id,req.auth.sub);
+    if (settlement.result !== SETTLEMENT_RESULT.SETTLED && settlement.result !== SETTLEMENT_RESULT.ALREADY_SETTLED) {
+      throw new Error('Delivery verified but settlement returned '+settlement.result);
+    }
+    const completed = await c.query(`UPDATE orders SET status='completed',updated_at=NOW() WHERE id=$1 RETURNING *`,[id]);
+    await c.query('COMMIT');
+    ok(res,{message:'Delivery verified and order completed.',order:completed.rows[0]});
+  } catch (e) {
+    try { await c.query('ROLLBACK'); } catch {}
+    console.error('Verify delivery error:',e);
+    fail(res,500,'Failed to verify delivery.');
+  } finally { c.release(); }
+});
+
 app.post('/api/admin/orders/:id/settle', auth, role('admin'), async (req, res) => {
   const c = await pool.connect();
   try {
