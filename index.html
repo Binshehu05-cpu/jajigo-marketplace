@@ -4813,8 +4813,13 @@ window.jgRunIdSearch=function(qRaw){
     if(Array.isArray(r.orders)){S.orders=r.orders.map(normalizeRemoteOrder);}
     if(U.role==='provider'){
       const mine=S.providers.find(p=>Number(p.user_id)===Number(U.user.id));
-      if(mine){U.provider_id=Number(mine.id);U.user={...U.user,provider_id:Number(mine.id),business_name:mine.business_name,status:mine.status};}
+      if(mine){U.provider_id=Number(mine.id);U.user={...U.user,provider_id:Number(mine.id),business_name:mine.business_name,status:mine.status,provider_code:mine.provider_code||null,jajigo_provider_id:mine.jajigo_provider_id||null,provider_public_id:mine.provider_public_id||mine.public_id||null};}
     }
+    if(U.role==='customer'){
+      const me=S.customers.find(c=>Number(c.id)===Number(U.user.id));
+      if(me){U.user={...U.user,public_id:me.public_id||U.user.public_id||null,customer_code:me.customer_code||null,jajigo_customer_id:me.jajigo_customer_id||null};}
+    }
+    if(U.role==='provider'||U.role==='customer'){S.current={...(S.current||{}),role:U.role,user:U.user,token:U.token||'local',remoteCustomer:!!U.remoteCustomer};}
     if(U.role==='admin')S.providers=S.providers;
     saveState();return true;
   }
