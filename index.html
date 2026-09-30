@@ -867,6 +867,18 @@ async function apiGet(path){
     return{ok:true,...data};
   }catch(e){console.error('JajiGo GET error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
 }
+async function apiRequest(method,path,body){
+  try{
+    const headers={'Content-Type':'application/json'};
+    if(U?.token&&U.token!=='local')headers.Authorization='Bearer '+U.token;
+    const opts={method,headers};
+    if(body!==undefined)opts.body=JSON.stringify(body);
+    const res=await fetch(JAJIGO_API+path,opts);
+    const data=await res.json().catch(()=>({ok:false,error:'Server returned an invalid response.'}));
+    if(!res.ok||!data.ok)return{ok:false,err:data.error||'Request failed. Please try again.',status:res.status,...data};
+    return{ok:true,status:res.status,...data};
+  }catch(e){console.error('JajiGo API error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
+}
 async function login(loginId,password){
   const raw=String(loginId||'').trim();
   const norm=normPhone(raw);
@@ -1153,7 +1165,7 @@ function showAuth(initialMsg){
         if(!loginId){markAuthError('pLoginId','Please enter your phone number or email.');return;}
         if(!password){markAuthError('pLoginPass','Please enter your password.');return;}
         setButtonLoading(btn,true,'🔄 Signing you in...');
-        try{const r=await login(loginId,password);if(!r.ok){setButtonLoading(btn,false);initialMsg=r.err;render();return;}if(r.role!=='provider'){setButtonLoading(btn,false);initialMsg='This account is not a provider account.';render();return;}U={role:'provider',user:r.user,pending:r.pending||false,token:r.token||'local',remoteCustomer:false};S.current={role:'provider',user:U.user,token:U.token,pending:U.pending};saveState();await boot();}
+        try{const r=await login(loginId,password);if(!r.ok){setButtonLoading(btn,false);initialMsg=r.err;render();return;}if(r.role!=='provider'){setButtonLoading(btn,false);initialMsg='This account is not a provider account.';render();return;}U={role:'provider',user:r.user,pending:r.pending||false,token:r.token||'local',remoteCustomer:false,provider_id:Number(r.provider?.id||r.user?.provider_id||0)};S.current={role:'provider',user:U.user,token:U.token,pending:U.pending,provider_id:U.provider_id};saveState();await boot();}
         catch(e){console.error('Provider login error:',e);setButtonLoading(btn,false);initialMsg='Provider login failed. Please try again.';render();}
       };
     }
@@ -1192,7 +1204,7 @@ function showAuth(initialMsg){
           const catId=matched?.id||6;
           const r=await registerProvider({name:$('#pName').value,business:$('#pBusiness').value,phone:phone,whatsapp:wa,email:$('#pEmail').value,password:pass,password_confirm:pass2,category_id:catId,business_type:typeKey,business_type_custom:customType,address:$('#pAddress').value,area:$('#pArea').value,desc:$('#pDesc').value,opening_time:$('#pOpen').value,closing_time:$('#pClose').value,delivery_mode:$('#pDelivery').value,logo_url:$('#pLogo').value,lat:window.jgPendingProviderLocation?.lat||null,lng:window.jgPendingProviderLocation?.lng||null,gps_accuracy:window.jgPendingProviderLocation?.accuracy||null});
           if(!r.ok){setButtonLoading(btn,false);initialMsg=r.err;render();return;}
-          U={role:'provider',user:r.provider,pending:true,token:'local',remoteCustomer:false};S.current={role:'provider',user:U.user,token:'local',pending:true};saveState();renderProviderApplicationSuccess(r.provider);
+          U={role:'provider',user:r.user,pending:true,token:r.token,remoteCustomer:false,provider_id:Number(r.provider?.id||0)};S.current={role:'provider',user:U.user,token:U.token,pending:true,provider_id:U.provider_id};saveState();renderProviderApplicationSuccess(r.provider);
         }catch(e){console.error('Provider registration error:',e);setButtonLoading(btn,false);initialMsg='Provider registration failed. Please try again.';render();}
       };
       return;
@@ -3476,7 +3488,7 @@ window.openReview=function(id){const o=S.orders.find(x=>x.id===id);if(!o)return;
 window.openCheckout=function(){
  const items=getCartItems();if(!items.length)return toast(L.empty_cart);const subtotal=cartSubtotal(),df=cartTotalDelivery(),prov=items[0].provider,myProfile=S.customers.find(c=>c.id===U.user.id);let coupon=null;
  function paint(){const disc=coupon?jgDiscount(coupon,subtotal):0,total=Math.max(0,subtotal+df-disc);openSheet(`<div class="h1">${L.checkout}</div><div class="card" style="margin-top:10px">${items.map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product.name)} ×${i.quantity}</span><b>${money(i.product.price*i.quantity)}</b></div>`).join('')}<div class="total-row"><span>${L.subtotal}</span><b>${money(subtotal)}</b></div><div class="total-row"><span>${L.del_fee}</span><b>${money(df)}</b></div>${coupon?`<div class="total-row"><span>🎟️ ${esc(coupon.code)}</span><b style="color:var(--g)">−${money(disc)}</b></div>`:''}<div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div></div><div class="field" style="margin-top:10px"><label>🎟️ Coupon code</label><div class="row" style="gap:7px"><input id="cpCode" placeholder="e.g. JAJI500" style="flex:1"><button class="btn sm" id="cpApply">Apply</button></div><div class="mut" id="cpMsg" style="font-size:12px;margin-top:4px"></div></div><div class="field"><label>Mode</label><select id="cMode">${prov.delivery_mode!=='customer_pickup'?`<option value="provider_delivery">${L.pdelivery} (${money(df)})</option>`:''}${prov.delivery_mode!=='provider_delivery'?`<option value="customer_pickup">${L.pickup}</option>`:''}</select></div><div class="field" id="addrWrap"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div><div class="field"><label>${L.phone_lbl}</label><input id="cPhone" value="${esc(myProfile?.phone||'')}"></div><div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option></select></div><button class="btn" id="cGo">👉 ${L.confirm_order} · ${money(total)}</button>`);
- const refresh=()=>$('#addrWrap').style.display=$('#cMode').value==='customer_pickup'?'none':'block';$('#cMode').onchange=refresh;refresh();$('#cpApply').onclick=()=>{const code=$('#cpCode').value.trim().toUpperCase();const c=S.coupons.find(x=>String(x.code).toUpperCase()===code);if(!jgCouponValid(c,subtotal,prov.id)){$('#cpMsg').textContent='Coupon is invalid, inactive, expired, or does not apply to this order.';return}coupon=c;paint()};$('#cGo').onclick=()=>{const btn=$('#cGo');if(btn.disabled)return;const mode=$('#cMode').value,address=$('#cAddr').value.trim(),phone=$('#cPhone').value.trim(),pm=$('#cPay').value;if(mode==='provider_delivery'&&!address)return toast(L.need_addr);if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);setButtonLoading(btn,true,'🔄 Placing your order...');setTimeout(()=>{try{const disc=coupon?jgDiscount(coupon,subtotal):0;const total=Math.max(0,subtotal+df-disc);const before=S.orders.length;placeOrder(mode,address,phone,pm,items,subtotal,df,total);const o=S.orders[0];if(o&&S.orders.length>=before){o.coupon_code=coupon?.code||'';o.discount=disc;o.campaign_id=coupon?.campaign_id||null;saveState()}}finally{setButtonLoading(btn,false)}},20)}}
+ const refresh=()=>$('#addrWrap').style.display=$('#cMode').value==='customer_pickup'?'none':'block';$('#cMode').onchange=refresh;refresh();$('#cpApply').onclick=()=>{const code=$('#cpCode').value.trim().toUpperCase();const c=S.coupons.find(x=>String(x.code).toUpperCase()===code);if(!jgCouponValid(c,subtotal,prov.id)){$('#cpMsg').textContent='Coupon is invalid, inactive, expired, or does not apply to this order.';return}coupon=c;paint()};$('#cGo').onclick=async()=>{const btn=$('#cGo');if(btn.disabled)return;const mode=$('#cMode').value,address=$('#cAddr').value.trim(),phone=$('#cPhone').value.trim(),pm=$('#cPay').value;if(mode==='provider_delivery'&&!address)return toast(L.need_addr);if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);if(U?.remoteCustomer&&coupon)return toast('Coupons are not connected to live checkout yet. Remove the coupon and continue.');setButtonLoading(btn,true,'🔄 Placing your order...');try{const disc=coupon?jgDiscount(coupon,subtotal):0;const total=Math.max(0,subtotal+df-disc);await placeOrder(mode,address,phone,pm,items,subtotal,df,total)}finally{setButtonLoading(btn,false)}}}
  paint();
 };
 const __oldRenderAdmin=renderAdmin;
@@ -4770,5 +4782,85 @@ window.jgRunIdSearch=function(qRaw){
 })();
 </script>
 
+<script id="jajigo-live-connection-hardening-v1">
+(function(){
+  function providerId(){return Number(U?.provider_id||U?.user?.provider_id||U?.user?.provider?.id||U?.user?.id||0)}
+  function normalizeRemoteOrder(o){
+    if(!o)return o;
+    let items=[];
+    try{items=typeof o.items==='string'?JSON.parse(o.items):o.items||[]}catch(e){items=[]}
+    o.items=(Array.isArray(items)?items:[]).map(i=>({
+      product_id:Number(i.product_id),
+      product_name:i.product_name||i.name||'',
+      quantity:Number(i.quantity??i.qty??1),
+      unit_price:Number(i.unit_price||0),
+      line_total:Number(i.line_total||0)
+    }));
+    o.provider_id=Number(o.provider_id);o.customer_id=Number(o.customer_id);
+    o.total=Number(o.total||0);o.subtotal=Number(o.subtotal||0);o.delivery_fee=Number(o.delivery_fee||0);
+    return o;
+  }
+  function mergeOrders(rows){
+    (rows||[]).forEach(raw=>{const o=normalizeRemoteOrder({...raw});const i=S.orders.findIndex(x=>String(x.id)===String(o.id));if(i>=0)S.orders[i]=o;else S.orders.push(o)});
+  }
+  async function syncBootstrap(){
+    if(!U?.token||U.token==='local')return false;
+    const r=await apiGet('/api/bootstrap');
+    if(!r.ok){console.warn('Bootstrap sync failed:',r.err);return false;}
+    if(Array.isArray(r.customers))S.customers=r.customers.map(x=>({...x,id:Number(x.id)}));
+    if(Array.isArray(r.providers))S.providers=r.providers.map(p=>({...p,id:Number(p.id),user_id:Number(p.user_id),category_id:p.category_id==null?null:Number(p.category_id)}));
+    if(Array.isArray(r.products))S.products=r.products.map(p=>({...p,id:Number(p.id),provider_id:Number(p.provider_id),category_id:p.category_id==null?null:Number(p.category_id),price:Number(p.price||0),stock:Number(p.stock_qty??p.stock??0),is_available:p.is_available!==false,desc:p.description||p.desc||'',icon:p.icon||'📦'}));
+    if(Array.isArray(r.orders)){S.orders=r.orders.map(normalizeRemoteOrder);}
+    if(U.role==='provider'){
+      const mine=S.providers.find(p=>Number(p.user_id)===Number(U.user.id));
+      if(mine){U.provider_id=Number(mine.id);U.user={...U.user,provider_id:Number(mine.id),business_name:mine.business_name,status:mine.status};}
+    }
+    if(U.role==='admin')S.providers=S.providers;
+    saveState();return true;
+  }
+  const oldBoot=boot;
+  boot=async function(){
+    if(U?.token&&U.token!=='local')await syncBootstrap();
+    return oldBoot.apply(this,arguments);
+  };
+
+  const oldPlaceOrder=window.placeOrder;
+  window.placeOrder=async function(mode,address,phone,pm,items,subtotal,df,total){
+    if(!U?.remoteCustomer)return oldPlaceOrder.apply(this,arguments);
+    const groups=groupCartByProvider(items);
+    if(groups.length!==1){
+      // The backend deliberately enforces one provider per order. Submit each provider group separately.
+      const results=[];
+      for(const g of groups){
+        const paymentModel=pm==='cash_on_delivery'?'provider_collected':'platform_collected';
+        const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
+        if(!r.ok){toast('❌ '+r.err);return false;} results.push(normalizeRemoteOrder(r.order));
+      }
+      mergeOrders(results);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes(results);toast('🎉 '+L.order_placed+' · '+results.length+' order'+(results.length===1?'':'s'));return true;
+    }
+    const g=groups[0];
+    const paymentModel=pm==='cash_on_delivery'?'provider_collected':'platform_collected';
+    const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
+    if(!r.ok){toast('❌ '+r.err);return false;}
+    const o=normalizeRemoteOrder(r.order);mergeOrders([o]);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes([o]);toast('🎉 '+L.order_placed);return true;
+  };
+
+  const localProvSetStatus=window.provSetStatus;
+  window.provSetStatus=async function(oid,next){
+    if(!U?.token||U.token==='local')return localProvSetStatus.apply(this,arguments);
+    if(U.role!=='provider')return toast('Provider access required.');
+    const o=S.orders.find(x=>String(x.id)===String(oid));
+    if(!o)return toast('Order not found.');
+    if(next==='completed'){
+      openSheet(`<div class="h1">🔐 Verify customer delivery</div><div class="mut" style="margin-top:4px">Ask the customer for the 6-digit code shown on their order screen.</div><div class="field" style="margin-top:12px"><label>Customer verification code</label><input id="jgLiveVerifyInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="Enter 6 digits" style="font-size:22px;letter-spacing:5px;text-align:center;font-weight:900"></div><button class="btn" id="jgLiveVerifyBtn">✅ Verify & Complete</button><button class="btn sec" style="margin-top:8px" onclick="closeSheet()">Cancel</button>`);
+      $('#jgLiveVerifyBtn').onclick=async()=>{const code=String($('#jgLiveVerifyInput').value||'').replace(/\D/g,'');if(!/^\d{6}$/.test(code))return toast('Enter the 6-digit code.');setButtonLoading($('#jgLiveVerifyBtn'),true,'🔄 Verifying...');const r=await apiRequest('POST','/api/orders/'+encodeURIComponent(oid)+'/verify-delivery',{code});setButtonLoading($('#jgLiveVerifyBtn'),false);if(!r.ok)return toast('❌ '+r.err);const updated=normalizeRemoteOrder(r.order);mergeOrders([updated]);saveState();closeSheet();toast('✅ Customer verified. Order completed.');renderProvider();};
+      return;
+    }
+    const r=await apiRequest('PATCH','/api/orders/'+encodeURIComponent(oid)+'/status',{status:next});
+    if(!r.ok)return toast('❌ '+r.err);
+    const updated=normalizeRemoteOrder(r.order);mergeOrders([updated]);saveState();updateBadges();toast('✅ '+next.replace(/_/g,' '));renderProvider();
+  };
+})();
+</script>
 </body>
 </html>
