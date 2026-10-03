@@ -840,8 +840,8 @@ function openSheet(html){$('#sheetBody').innerHTML='<div class="grab"></div>'+ht
 function closeSheet(){$('#sheet').classList.remove('open')}
 $('#sheet').addEventListener('click',e=>{if(e.target.id==='sheet')closeSheet()});
 function stars(r){return r?`<span class="stars">★</span> ${r}`:''}
-function providerById(id){return S.providers.find(p=>p.id===id)}
-function productById(id){return S.products.find(p=>p.id===id)}
+function providerById(id){return S.providers.find(p=>String(p.id)===String(id))}
+function productById(id){return S.products.find(p=>String(p.id)===String(id))}
 function categoryById(id){return S.categories.find(c=>c.id===id)}
 function categoryBySlug(slug){return S.categories.find(c=>c.slug===slug)||null}
 
@@ -875,7 +875,7 @@ async function apiRequest(method,path,body){
     if(body!==undefined)opts.body=JSON.stringify(body);
     const res=await fetch(JAJIGO_API+path,opts);
     const data=await res.json().catch(()=>({ok:false,error:'Server returned an invalid response.'}));
-    if(!res.ok||!data.ok)return{ok:false,err:data.error||'Request failed. Please try again.',status:res.status,...data};
+    if(!res.ok||!data.ok)return{ok:false,err:data.error||data.message||'Request failed. Please try again.',status:res.status,...data};
     return{ok:true,status:res.status,...data};
   }catch(e){console.error('JajiGo API error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
 }
@@ -883,20 +883,7 @@ async function login(loginId,password){
   const raw=String(loginId||'').trim();
   const norm=normPhone(raw);
   // Admin accounts are never checked locally. Admin signs in through the server below.
-  // Keep existing local provider demo accounts working.
-  const p=S.providers.find(x=>(x.user_phone||x.phone)===norm);
-  if(p){
-    if(p.status==='suspended')return{ok:false,err:'Your business is suspended. Contact JajiGo.'};
-    if(p.password_hash&&await shaPw(norm,password)===p.password_hash)return{ok:true,role:'provider',user:p,pending:p.status==='pending',token:'local'};
-    if(p.password===password)return{ok:true,role:'provider',user:p,pending:p.status==='pending',token:'local'};
-    return{ok:false,err:'Wrong phone number or password.'};
-  }
-  // Keep the built-in customer demo account working if it has not been migrated.
-  const c=S.customers.find(x=>x.phone===norm);
-  if(c&&raw.indexOf('@')===-1){
-    if(c.password_hash&&await shaPw(norm,password)===c.password_hash)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
-    if(c.password===password)return{ok:true,role:'customer',user:c,token:'local',localCustomer:true};
-  }
+  // Live Render authentication only: no local demo provider/customer fallback.
   const r=await apiAuth('/api/auth/login',{email:raw,password});
   if(!r.ok)return r;
   if(r.user&&r.user.role==='admin'&&r.token)return{ok:true,role:'admin',user:r.user,token:r.token,remoteAdmin:true};
@@ -3438,6 +3425,7 @@ async function shaPw(norm,pw){
   window.useDemo=window.useDemoImpl;
 
   // restore last session if any
+  if(S.current&&S.current.token==='local'){S.current=null;saveState();} // old demo-only session: require live login
   if(S.current&&S.current.token){
     // Restore the complete session object. The previous code restored only the user
     // and lost the role, which could break automatic session resume after reload.
@@ -3447,8 +3435,6 @@ async function shaPw(norm,pw){
     if(U&&U.role==='customer'&&!U.remoteCustomer){const cc=S.customers.find(x=>String(x.id)===String(U.user.id));if(cc)U.user=cc;}
     if(U&&U.role==='customer')setLang(U.user.uiLang||'en');
     if(U)boot();else showAuth();
-  } else if(S.default_login&&S.default_login!=='admin'){
-    window.useDemoImpl(S.default_login);
   } else {
     showAuth();
   }
@@ -3486,9 +3472,9 @@ window.provSetStatus=function(oid,next){
 };
 window.openReview=function(id){const o=S.orders.find(x=>x.id===id);if(!o)return;openSheet(`<div class="h1">⭐ Rate your experience</div><div class="mut" style="margin:5px 0 10px">Rate the provider, product/service and delivery.</div><div class="field"><label>🏪 Provider</label><select id="rvP">${[5,4,3,2,1].map(v=>`<option value="${v}">${'★'.repeat(v)}${'☆'.repeat(5-v)}</option>`).join('')}</select></div><div class="field"><label>📦 Product / Service</label><select id="rvI">${[5,4,3,2,1].map(v=>`<option value="${v}">${'★'.repeat(v)}${'☆'.repeat(5-v)}</option>`).join('')}</select></div><div class="field"><label>🛵 Delivery</label><select id="rvD">${[5,4,3,2,1].map(v=>`<option value="${v}">${'★'.repeat(v)}${'☆'.repeat(5-v)}</option>`).join('')}</select></div><div class="field"><label>Comment</label><textarea id="rvC" placeholder="Tell us about your experience"></textarea></div><button class="btn" id="rvGo">⭐ Submit review</button>`);$('#rvGo').onclick=()=>{const provider_rating=+$('#rvP').value,product_rating=+$('#rvI').value,delivery_rating=+$('#rvD').value,comment=$('#rvC').value.trim();S.reviews.push({provider_id:o.provider_id,order_id:id,rating:Math.round((provider_rating+product_rating+delivery_rating)/3),provider_rating,product_rating,delivery_rating,comment,customer:U.user.full_name});saveState();closeSheet();toast('⭐ Thank you for your review!');renderTab()}}
 window.openCheckout=function(){
- const items=getCartItems();if(!items.length)return toast(L.empty_cart);const subtotal=cartSubtotal(),df=cartTotalDelivery(),prov=items[0].provider,myProfile=S.customers.find(c=>c.id===U.user.id);let coupon=null;
- function paint(){const disc=coupon?jgDiscount(coupon,subtotal):0,total=Math.max(0,subtotal+df-disc);openSheet(`<div class="h1">${L.checkout}</div><div class="card" style="margin-top:10px">${items.map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product.name)} ×${i.quantity}</span><b>${money(i.product.price*i.quantity)}</b></div>`).join('')}<div class="total-row"><span>${L.subtotal}</span><b>${money(subtotal)}</b></div><div class="total-row"><span>${L.del_fee}</span><b>${money(df)}</b></div>${coupon?`<div class="total-row"><span>🎟️ ${esc(coupon.code)}</span><b style="color:var(--g)">−${money(disc)}</b></div>`:''}<div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div></div><div class="field" style="margin-top:10px"><label>🎟️ Coupon code</label><div class="row" style="gap:7px"><input id="cpCode" placeholder="e.g. JAJI500" style="flex:1"><button class="btn sm" id="cpApply">Apply</button></div><div class="mut" id="cpMsg" style="font-size:12px;margin-top:4px"></div></div><div class="field"><label>Mode</label><select id="cMode">${prov.delivery_mode!=='customer_pickup'?`<option value="provider_delivery">${L.pdelivery} (${money(df)})</option>`:''}${prov.delivery_mode!=='provider_delivery'?`<option value="customer_pickup">${L.pickup}</option>`:''}</select></div><div class="field" id="addrWrap"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div><div class="field"><label>${L.phone_lbl}</label><input id="cPhone" value="${esc(myProfile?.phone||'')}"></div><div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option></select></div><button class="btn" id="cGo">👉 ${L.confirm_order} · ${money(total)}</button>`);
- const refresh=()=>$('#addrWrap').style.display=$('#cMode').value==='customer_pickup'?'none':'block';$('#cMode').onchange=refresh;refresh();$('#cpApply').onclick=()=>{const code=$('#cpCode').value.trim().toUpperCase();const c=S.coupons.find(x=>String(x.code).toUpperCase()===code);if(!jgCouponValid(c,subtotal,prov.id)){$('#cpMsg').textContent='Coupon is invalid, inactive, expired, or does not apply to this order.';return}coupon=c;paint()};$('#cGo').onclick=async()=>{const btn=$('#cGo');if(btn.disabled)return;const mode=$('#cMode').value,address=$('#cAddr').value.trim(),phone=$('#cPhone').value.trim(),pm=$('#cPay').value;if(mode==='provider_delivery'&&!address)return toast(L.need_addr);if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);if(U?.remoteCustomer&&coupon)return toast('Coupons are not connected to live checkout yet. Remove the coupon and continue.');setButtonLoading(btn,true,'🔄 Placing your order...');try{const disc=coupon?jgDiscount(coupon,subtotal):0;const total=Math.max(0,subtotal+df-disc);await placeOrder(mode,address,phone,pm,items,subtotal,df,total)}finally{setButtonLoading(btn,false)}}}
+ const items=getCartItems();if(!items.length)return toast(L.empty_cart);const subtotal=cartSubtotal(),df=cartTotalDelivery(),prov=items[0].provider,myProfile=S.customers.find(c=>c.id===U.user.id);let coupon=null;const isBreakfast=items.every(i=>jgIsBreakfast(i.product));if(!isBreakfast&&items.some(i=>jgIsBreakfast(i.product)))return toast('Breakfast items must be ordered separately from standard items.');if(isBreakfast&&!jgMorningActive(prov))return toast('Morning Rush is not active for this provider.');const pkgFee=isBreakfast?Number(prov.morning_packaging_fee||0):0,payPlatform=prov.platform_payment_enabled!==false,payProvider=prov.provider_payment_enabled!==false;
+ function paint(){const disc=coupon?jgDiscount(coupon,subtotal):0,total=(Math.max(0,subtotal+df-disc)+pkgFee);openSheet(`<div class="h1">${isBreakfast?'🍳 Morning Rush · ':''}${L.checkout}</div><div class="card" style="margin-top:10px">${items.map(i=>`<div class="row" style="padding:3px 0"><span>${esc(i.product.name)} ×${i.quantity}</span><b>${money(i.product.price*i.quantity)}</b></div>`).join('')}<div class="total-row"><span>${L.subtotal}</span><b>${money(subtotal)}</b></div><div class="total-row"><span>${L.del_fee}</span><b>${money(df)}</b></div>${pkgFee?`<div class="total-row"><span>📦 Breakfast packaging</span><b>${money(pkgFee)}</b></div>`:''}${coupon?`<div class="total-row"><span>🎟️ ${esc(coupon.code)}</span><b style="color:var(--g)">−${money(disc)}</b></div>`:''}<div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(total)}</span></div></div><div class="field" style="margin-top:10px"><label>🎟️ Coupon code</label><div class="row" style="gap:7px"><input id="cpCode" placeholder="e.g. JAJI500" style="flex:1"><button class="btn sm" id="cpApply">Apply</button></div><div class="mut" id="cpMsg" style="font-size:12px;margin-top:4px"></div></div><div class="field"><label>Mode</label><select id="cMode">${prov.delivery_mode!=='customer_pickup'?`<option value="provider_delivery">${L.pdelivery} (${money(df)})</option>`:''}${prov.delivery_mode!=='provider_delivery'?`<option value="customer_pickup">${L.pickup}</option>`:''}</select></div><div class="field" id="addrWrap"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div><div class="field"><label>${L.phone_lbl}</label><input id="cPhone" value="${esc(myProfile?.phone||'')}"></div><div class="field"><label>💰 Payment destination</label><select id="cModel">${payPlatform?'<option value="platform_collected">Pay JajiGo</option>':''}${payProvider?'<option value="provider_collected">Pay provider directly</option>':''}</select><div class="mut" style="font-size:12px;margin-top:4px">The selected payment model is saved with the order.</div></div><div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option></select></div><button class="btn" id="cGo">👉 ${L.confirm_order} · ${money(total)}</button>`);
+ const refresh=()=>$('#addrWrap').style.display=$('#cMode').value==='customer_pickup'?'none':'block';$('#cMode').onchange=refresh;refresh();$('#cpApply').onclick=()=>{const code=$('#cpCode').value.trim().toUpperCase();const c=S.coupons.find(x=>String(x.code).toUpperCase()===code);if(!jgCouponValid(c,subtotal,prov.id)){$('#cpMsg').textContent='Coupon is invalid, inactive, expired, or does not apply to this order.';return}coupon=c;paint()};$('#cGo').onclick=async()=>{const btn=$('#cGo');if(btn.disabled)return;const mode=$('#cMode').value,address=$('#cAddr').value.trim(),phone=$('#cPhone').value.trim(),pm=$('#cPay').value,model=$('#cModel')?.value||'';if(mode==='provider_delivery'&&!address)return toast(L.need_addr);if(!model)return toast('This provider has no payment option enabled right now.');if(!/^0\d{10}$/.test(phone))return toast(L.need_phone);if(U?.remoteCustomer&&coupon)return toast('Coupons are not connected to live checkout yet. Remove the coupon and continue.');setButtonLoading(btn,true,'🔄 Placing your order...');try{const disc=coupon?jgDiscount(coupon,subtotal):0;const total=(Math.max(0,subtotal+df-disc)+pkgFee);await placeOrder(mode,address,phone,pm,items,subtotal,df,total,{orderType:isBreakfast?'breakfast':'standard',paymentModel:model})}finally{setButtonLoading(btn,false)}}}
  paint();
 };
 const __oldRenderAdmin=renderAdmin;
@@ -4809,7 +4795,7 @@ window.jgRunIdSearch=function(qRaw){
     if(!r.ok){console.warn('Bootstrap sync failed:',r.err);return false;}
     if(Array.isArray(r.customers))S.customers=r.customers.map(x=>({...x,id:Number(x.id),customer_code:x.customer_code||x.jajigo_customer_id||x.public_id||null,jajigo_customer_id:x.jajigo_customer_id||x.customer_code||x.public_id||null}));
     if(Array.isArray(r.providers))S.providers=r.providers.map(p=>({...p,id:Number(p.id),user_id:Number(p.user_id),category_id:p.category_id==null?null:Number(p.category_id),provider_code:p.provider_code||p.jajigo_provider_id||p.provider_public_id||p.public_id||null,jajigo_provider_id:p.jajigo_provider_id||p.provider_code||p.provider_public_id||p.public_id||null}));
-    if(Array.isArray(r.products))S.products=r.products.map(p=>({...p,id:Number(p.id),provider_id:Number(p.provider_id),category_id:p.category_id==null?null:Number(p.category_id),price:Number(p.price||0),stock:Number(p.stock_qty??p.stock??0),is_available:p.is_available!==false,desc:p.description||p.desc||'',icon:p.icon||'📦'}));
+    if(Array.isArray(r.products))S.products=r.products.map(p=>({...p,id:Number(p.id),provider_id:Number(p.provider_id),category_id:p.category_id==null?null:Number(p.category_id),price:Number(p.price||0),stock:(p.stock_qty??p.stock)==null?null:Number(p.stock_qty??p.stock),is_available:p.is_available!==false,desc:p.description||p.desc||'',icon:p.icon||'📦'}));
     if(Array.isArray(r.orders)){S.orders=r.orders.map(normalizeRemoteOrder);}
     if(U.role==='provider'){
       const mine=S.providers.find(p=>Number(p.user_id)===Number(U.user.id));
@@ -4830,29 +4816,30 @@ window.jgRunIdSearch=function(qRaw){
   };
 
   const oldPlaceOrder=window.placeOrder;
-  window.placeOrder=async function(mode,address,phone,pm,items,subtotal,df,total){
+  window.placeOrder=async function(mode,address,phone,pm,items,subtotal,df,total,opts){
     if(!U?.remoteCustomer)return oldPlaceOrder.apply(this,arguments);
+    const orderType=(opts&&opts.orderType)==='breakfast'?'breakfast':'standard';
     const groups=groupCartByProvider(items);
     if(groups.length!==1){
       // The backend deliberately enforces one provider per order. Submit each provider group separately.
       const results=[];
       for(const g of groups){
-        const paymentModel=pm==='cash_on_delivery'?'provider_collected':'platform_collected';
-        const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
+        const paymentModel=(opts&&opts.paymentModel)||(pm==='cash_on_delivery'?'provider_collected':'platform_collected');
+        const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,order_type:orderType,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
         if(!r.ok){toast('❌ '+r.err);return false;} results.push(normalizeRemoteOrder(r.order));
       }
       mergeOrders(results);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes(results);toast('🎉 '+L.order_placed+' · '+results.length+' order'+(results.length===1?'':'s'));return true;
     }
     const g=groups[0];
-    const paymentModel=pm==='cash_on_delivery'?'provider_collected':'platform_collected';
-    const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
+    const paymentModel=(opts&&opts.paymentModel)||(pm==='cash_on_delivery'?'provider_collected':'platform_collected');
+    const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,order_type:orderType,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
     if(!r.ok){toast('❌ '+r.err);return false;}
     const o=normalizeRemoteOrder(r.order);mergeOrders([o]);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes([o]);toast('🎉 '+L.order_placed);return true;
   };
 
   const localProvSetStatus=window.provSetStatus;
   window.provSetStatus=async function(oid,next){
-    if(!U?.token||U.token==='local')return localProvSetStatus.apply(this,arguments);
+    if(!U?.token||U.token==='local')return toast('Please log in again to update orders.'); // local status changes (and the local delivered→completed shortcut) are disabled
     if(U.role!=='provider')return toast('Provider access required.');
     const o=S.orders.find(x=>String(x.id)===String(oid));
     if(!o)return toast('Order not found.');
@@ -4867,5 +4854,216 @@ window.jgRunIdSearch=function(qRaw){
   };
 })();
 </script>
+<!-- JajiGo Morning Rush v1: customer Home section, breakfast products, provider hours/limit/payment options, live provider product CRUD -->
+<script id="jajigo-morning-rush-v1">
+(function(){
+  const live=()=>!!(U&&U.token&&U.token!=='local');
+  const provId=()=>Number(U?.provider_id||U?.user?.provider_id||0);
+  const same=(a,b)=>String(a)===String(b);
+
+  window.jgIsBreakfast=function(p){return !!p&&(p.is_breakfast===true||p.is_breakfast===1||p.is_breakfast==='true'||p.is_breakfast==='t')};
+  window.jgMorningActive=function(pr){return !!pr&&!!pr.morning_rush_enabled&&!pr.morning_rush_paused};
+
+  // Same request rules as the rest of the app, but accepts either `error` or `message` from the server.
+  async function mr(method,path,body){
+    try{
+      const headers={'Content-Type':'application/json'};
+      if(U?.token&&U.token!=='local')headers.Authorization='Bearer '+U.token;
+      const opts={method,headers};
+      if(body!==undefined)opts.body=JSON.stringify(body);
+      const res=await fetch(JAJIGO_API+path,opts);
+      let d={};try{d=await res.json()}catch(e){d={}}
+      if(!res.ok||d.ok===false)return{ok:false,err:d.error||d.message||'Request failed. Please try again.',status:res.status};
+      return{...d,ok:true,status:res.status};
+    }catch(e){return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'}}
+  }
+
+  function normProduct(p){
+    return {...p,id:Number(p.id),provider_id:Number(p.provider_id),category_id:p.category_id==null?null:Number(p.category_id),
+      price:Number(p.price||0),stock:(p.stock_qty??p.stock)==null?null:Number(p.stock_qty??p.stock),
+      is_available:p.is_available!==false&&p.is_available!==0,desc:p.description||p.desc||'',icon:p.icon||'📦'};
+  }
+  function mergeProducts(list){
+    (list||[]).forEach(raw=>{if(!raw)return;const p=normProduct(raw);const i=S.products.findIndex(x=>same(x.id,p.id));if(i>=0)S.products[i]={...S.products[i],...p};else S.products.push(p)});
+  }
+  // Provider screens compare against U.user.id, which for a live provider is the user id, not the provider id.
+  function asProvider(fn){
+    const real=U&&U.user;let swapped=false;
+    if(U&&U.role==='provider'&&live()&&provId()&&real&&Number(real.id)!==provId()){U.user={...real,id:provId(),user_id:real.user_id??real.id};swapped=true}
+    try{return fn()}finally{if(swapped)U.user=real}
+  }
+
+  /* ---------------- Customer: 🌅 Morning Rush section on Home ---------------- */
+  function cardHtml(){
+    return `<div class="card" id="jgMorningCard" style="margin-top:10px;background:linear-gradient(135deg,#fff8e8,#f3fff9);border:1px solid var(--line)"><div class="row"><div><div class="h1" style="font-size:17px">🌅 Morning Rush</div><div class="mut">Breakfast from participating providers during their morning hours.</div></div><span style="font-size:34px">🍳</span></div><button class="btn" style="margin-top:9px" onclick="openMorningRush()">🍳 See Morning Breakfast</button></div>`;
+  }
+  const oldHome=window.renderHome;
+  window.renderHome=function(app){
+    const r=oldHome.apply(this,arguments);
+    try{
+      if(U&&U.role==='customer'&&app&&!app.querySelector('#jgMorningCard')){
+        const anchor=app.querySelector('.near-card');
+        if(anchor)anchor.insertAdjacentHTML('beforebegin',cardHtml());else app.insertAdjacentHTML('beforeend',cardHtml());
+      }
+    }catch(e){console.warn('Morning Rush card:',e)}
+    return r;
+  };
+
+  window.openMorningRush=async function(){
+    const r=await mr('GET','/api/morning-rush');
+    const list=r.ok?(r.morning_rush||[]):[];
+    if(!list.length){
+      return openSheet(`<div class="h1">🍳 Morning Rush</div><div class="empty" style="margin-top:12px"><div class="ei">🌅</div>${r.ok?'Morning breakfast is not available right now.':esc(r.err||'Could not load Morning Rush.')}</div>`);
+    }
+    mergeProducts(list);
+    const groups={};
+    list.forEach(raw=>{const p=normProduct(raw);(groups[p.provider_id]??=[]).push(p)});
+    openSheet(`<div class="h1">🍳 Morning Rush</div><div class="mut" style="margin:4px 0 12px">Fresh breakfast available right now.</div>`+
+      Object.entries(groups).map(([pid,items])=>{
+        const pr=providerById(Number(pid))||items[0],fee=Number(pr.morning_packaging_fee||0);
+        return `<div class="card" style="margin-bottom:10px"><div class="row"><b>${esc(pr.business_name||'JajiGo Provider')}</b><span class="pill">🍳 Breakfast</span></div><div class="grid2" style="margin-top:9px">${items.map(p=>pc(S.products.find(x=>same(x.id,p.id))||p)).join('')}</div>${fee>0?`<div class="mut" style="font-size:12px;margin-top:8px">📦 One packaging fee per breakfast order: ${money(fee)}</div>`:''}</div>`;
+      }).join(''));
+  };
+
+  /* ---------------- Provider: Morning Rush hours, packaging fee, limit, payment options ---------------- */
+  window.provMorningRush=async function(){
+    if(!U||U.role!=='provider')return toast('Provider access required.');
+    if(!live())return toast('Please log in again.');
+    const g=await mr('GET','/api/providers/me/morning-rush');
+    if(!g.ok)return toast('❌ '+g.err);
+    const m=g.morning_rush||{};
+    openSheet(`<div class="h1">🍳 Morning Rush Settings</div><div class="mut" style="margin:4px 0 12px">Control your breakfast window, packaging fee, order limit and payment options.</div>
+    <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input id="mrEnabled" type="checkbox" ${m.morning_rush_enabled?'checked':''}> Enable Morning Rush</label>
+    <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input id="mrPaused" type="checkbox" ${m.morning_rush_paused?'checked':''}> Pause temporarily</label>
+    <div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Open (HH:MM)</label><input id="mrOpen" value="${esc(m.morning_open_time||'06:00')}"></div><div class="field" style="flex:1"><label>Close (HH:MM)</label><input id="mrClose" value="${esc(m.morning_close_time||'11:00')}"></div></div>
+    <div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Prep minutes</label><input id="mrPrep" type="number" min="1" value="${Number(m.morning_prep_minutes||15)}"></div><div class="field" style="flex:1"><label>Packaging fee ₦</label><input id="mrFee" type="number" min="0" value="${Number(m.morning_packaging_fee||0)}"></div></div>
+    <div class="field"><label>Max breakfast orders today (optional)</label><input id="mrMax" type="number" min="1" value="${m.morning_max_orders??''}" placeholder="Leave empty for unlimited"></div>
+    <label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input id="mrPlatform" type="checkbox" ${m.platform_payment_enabled!==false?'checked':''}> Allow Pay JajiGo</label>
+    <label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input id="mrProvider" type="checkbox" ${m.provider_payment_enabled!==false?'checked':''}> Allow Pay provider directly</label>
+    <button class="btn" id="mrSave">Save Morning Rush</button>`);
+    $('#mrSave').onclick=async function(){
+      const btn=$('#mrSave');
+      if(!$('#mrPlatform').checked&&!$('#mrProvider').checked)return toast('Allow at least one payment option.');
+      setButtonLoading(btn,true,'🔄 Saving...');
+      const r=await mr('PATCH','/api/providers/me/morning-rush',{
+        morning_rush_enabled:$('#mrEnabled').checked,morning_rush_paused:$('#mrPaused').checked,
+        morning_open_time:$('#mrOpen').value.trim(),morning_close_time:$('#mrClose').value.trim(),
+        morning_prep_minutes:Number($('#mrPrep').value),morning_packaging_fee:Number($('#mrFee').value),
+        morning_max_orders:$('#mrMax').value===''?null:Number($('#mrMax').value),
+        platform_payment_enabled:$('#mrPlatform').checked,provider_payment_enabled:$('#mrProvider').checked});
+      setButtonLoading(btn,false);
+      if(!r.ok)return toast('❌ '+r.err);
+      const upd=r.provider||r.morning_rush||{};
+      Object.assign(U.user,upd);
+      const sp=S.providers.find(x=>Number(x.id)===provId());if(sp)Object.assign(sp,upd);
+      saveState();closeSheet();toast('✅ Morning Rush settings saved');renderProvider();
+    };
+  };
+
+  // Provider dashboard: render with the provider's real id, then add the Morning Rush button.
+  const oldRP=window.renderProvider;
+  window.renderProvider=function(){
+    let r;
+    const real=U&&U.user;let swapped=false;
+    if(U&&U.role==='provider'&&live()&&provId()&&real&&Number(real.id)!==provId()){U.user={...real,id:provId(),user_id:real.user_id??real.id};swapped=true}
+    try{r=oldRP.apply(this,arguments)}finally{if(swapped)U.user=real}
+    try{
+      if(U&&U.role==='provider'&&provView.tab==='overview'&&!document.querySelector('#jgMrBtn')){
+        const prodBtn=document.querySelector('#app button[onclick*="provView.tab=\'products\'"]');
+        if(prodBtn)prodBtn.insertAdjacentHTML('afterend','<button class="btn sec" id="jgMrBtn" onclick="provMorningRush()">🍳 Morning Rush</button>');
+      }
+    }catch(e){console.warn('Morning Rush button:',e)}
+    return r;
+  };
+
+  /* ---------------- Provider products: create / edit / delete / availability via the backend ---------------- */
+  const BF_ADD='<label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input id="apBreakfast" type="checkbox"> 🍳 This is a Morning Rush breakfast item</label>';
+
+  const oldAdd=window.provAddProduct;
+  window.provAddProduct=function(){
+    if(!U||U.role!=='provider')return toast('Provider access required.');
+    if(!live())return toast('Please log in again.');
+    const r=asProvider(()=>oldAdd.apply(this,arguments));
+    const btn=$('#apGo');if(!btn)return r;
+    btn.insertAdjacentHTML('beforebegin',BF_ADD);
+    btn.onclick=async function(){
+      const name=$('#apName').value.trim(),desc=$('#apDesc').value.trim(),price=Number($('#apPrice').value);
+      const sale=Number($('#apSale').value||0),stockRaw=$('#apStock').value.trim(),stock=stockRaw===''?null:Number(stockRaw);
+      if(!name)return toast('Enter a name.');
+      if(!desc)return toast('Add a short description.');
+      if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
+      if(sale&&(!Number.isFinite(sale)||sale<=0||sale>=price))return toast('Discounted price must be lower than the normal price.');
+      if(stock!==null&&(!Number.isFinite(stock)||stock<0))return toast('Enter a valid stock quantity.');
+      if(!$('#apConfirm').checked)return toast('Please confirm the listing details first.');
+      let photo='';const file=$('#apPhoto').files?.[0];
+      if(file){try{photo=await compressProviderPhoto(file)}catch(e){return toast('Could not process that photo. Try another one.')}}
+      setButtonLoading(btn,true,'🔄 Saving...');
+      const res=await mr('POST','/api/products',{name,description:desc,price,stock_qty:stock,photo,
+        is_breakfast:!!$('#apBreakfast')?.checked,is_available:!!Number($('#apAvailable').value)});
+      setButtonLoading(btn,false);
+      if(!res.ok)return toast('❌ '+res.err);
+      mergeProducts([res.product]);saveState();closeSheet();toast('✅ Added successfully');renderProvider();
+    };
+    return r;
+  };
+
+  const oldEdit=window.provEditPrice;
+  window.provEditPrice=function(pid){
+    if(!U||U.role!=='provider')return;
+    if(!live())return toast('Please log in again.');
+    const p=S.products.find(x=>same(x.id,pid));
+    if(!p||Number(p.provider_id)!==provId())return toast('Product not found. Please refresh and try again.');
+    const r=asProvider(()=>oldEdit.call(this,p.id));
+    const btn=$('#npGo');if(!btn)return r;
+    btn.insertAdjacentHTML('beforebegin',`<label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input id="nBreakfast" type="checkbox" ${jgIsBreakfast(p)?'checked':''}> 🍳 Morning Rush breakfast item</label>`);
+    btn.onclick=async function(){
+      const name=$('#nn').value.trim(),price=Number($('#np').value);
+      if(!name)return toast('Enter a name.');
+      if(!Number.isFinite(price)||price<=0)return toast('Enter a valid price.');
+      const stockRaw=$('#nstock').value.trim(),stockChanged=stockRaw!==String(p.stock??'');
+      let stock=null;
+      if(stockChanged&&stockRaw!==''){stock=Number(stockRaw);if(!Number.isFinite(stock)||stock<0)return toast('Enter a valid stock quantity.')}
+      let photo=p.photo||'';const file=$('#nphoto').files?.[0];
+      if(file){
+        if(!file.type.startsWith('image/'))return toast('Please choose an image file.');
+        if(file.size>8*1024*1024)return toast('Photo is too large.');
+        try{photo=await compressProviderPhoto(file)}catch(e){return toast('Could not process that photo.')}
+      }
+      const body={name,description:$('#nd').value.trim(),price,is_available:!!Number($('#nav').value),photo,is_breakfast:!!$('#nBreakfast')?.checked};
+      if(stockChanged)body.stock_qty=stockRaw===''?null:stock;
+      setButtonLoading(btn,true,'🔄 Saving...');
+      const res=await mr('PATCH','/api/products/'+encodeURIComponent(p.id),body);
+      setButtonLoading(btn,false);
+      if(!res.ok)return toast('❌ '+res.err);
+      mergeProducts([res.product||{...p,...body,stock_qty:body.stock_qty!==undefined?body.stock_qty:p.stock}]);
+      saveState();closeSheet();toast('✅ Product updated');renderProvider();
+    };
+    return r;
+  };
+
+  window.provDeleteProduct=async function(pid){
+    if(!U||U.role!=='provider')return;
+    if(!live())return toast('Please log in again.');
+    const p=S.products.find(x=>same(x.id,pid));
+    if(!p||Number(p.provider_id)!==provId())return;
+    if(!confirm('Delete "'+p.name+'"? This cannot be undone.'))return;
+    const res=await mr('DELETE','/api/products/'+encodeURIComponent(p.id));
+    if(!res.ok)return toast('❌ '+res.err);
+    S.products=S.products.filter(x=>!same(x.id,p.id));saveState();toast('🗑 Product deleted');renderProvider();
+  };
+
+  window.provToggle=async function(pid,av){
+    if(!U||U.role!=='provider')return;
+    if(!live())return toast('Please log in again.');
+    const p=S.products.find(x=>same(x.id,pid));
+    if(!p||Number(p.provider_id)!==provId())return;
+    const res=await mr('PATCH','/api/products/'+encodeURIComponent(p.id),{is_available:!!Number(av)});
+    if(!res.ok)return toast('❌ '+res.err);
+    mergeProducts([res.product||{...p,is_available:!!Number(av),stock_qty:p.stock}]);
+    saveState();renderProvider();
+  };
+})();
+</script>
+
 </body>
 </html>
