@@ -3736,11 +3736,11 @@ function jgGeminiApiUrl(path){
 function jgGeminiSafeContext(){
   const cfg=window.JAJIGO_GEMINI_CONFIG;
   const clip=(v,n=cfg.maxTextChars)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
-  const user=U?{role:U.role,id:U.user?.id||null,name:clip(U.user?.name,80),business_name:clip(U.user?.business_name,100)}:null;
+  const user=U?{role:U.role,id:U.user?.id||null,name:clip(U.user?.full_name||U.user?.name,80),business_name:clip(U.user?.business_name,100)}:null;
 
   /* Send only the fields the AI needs. Smaller JSON = faster upload + parsing. */
   const products=(S?.products||[])
-    .filter(p=>p&&p.is_available!==0)
+    .filter(p=>p&&p.is_available!==false&&p.is_available!==0)
     .slice(0,cfg.maxProductsContext)
     .map(p=>({
       id:p.id,
@@ -3832,12 +3832,24 @@ async function jgGeminiCall(message){
       language:typeof uiLang!=='undefined'?uiLang:'en',
       context:cfg.sendMarketplaceContext?jgGeminiSafeContext():undefined
     };
-    const res=await fetch(jgGeminiApiUrl(cfg.endpoint),{
+    const doFetch=()=>fetch(jgGeminiApiUrl(cfg.endpoint),{
       method:'POST',headers:{'Content-Type':'application/json'},
       signal:controller.signal,body:JSON.stringify(payload),cache:'no-store'
     });
+    let res;
+    try{res=await doFetch();}
+    catch(firstErr){
+      /* Cold-starting server: wait briefly and retry once (unless we timed out). */
+      if(firstErr?.name==='AbortError')throw firstErr;
+      await new Promise(r=>setTimeout(r,2500));
+      res=await doFetch();
+    }
+    if(res.status===502||res.status===503||res.status===504){
+      await new Promise(r=>setTimeout(r,2500));
+      res=await doFetch();
+    }
     const data=await res.json().catch(()=>({}));
-    if(!res.ok)throw new Error(data?.error?.message||data?.error||data?.message||('HTTP '+res.status));
+    if(!res.ok){const em=data?.error?.message||(typeof data?.error==='string'?data.error:'')||data?.message;throw new Error(em||(res.status===429?'JajiGo AI is busy right now. Please try again in a minute.':'JajiGo AI server error (HTTP '+res.status+').'));}
     if(!data||typeof data.reply!=='string'||!data.reply.trim())throw new Error('Gemini returned an empty reply.');
     return data;
   }catch(e){
@@ -3867,7 +3879,7 @@ function jgGeminiWarmup(){
     method:'GET',cache:'no-store',signal:controller.signal
   }).then(async res=>{
     const data=await res.json().catch(()=>({}));
-    if(res.ok&&data.ready){
+    if(res.ok&&(data.ready===true||data.ready===undefined&&data.ok!==false)){
       window.jajigoGeminiStatus='online';
       jgGeminiUpdateStatus();
       return true;
@@ -3934,9 +3946,11 @@ window.addEventListener('offline',()=>{window.jajigoGeminiStatus='error';jgGemin
    verify that credential at POST /api/auth/google before creating a session. */
 function jgGoogleBackendErrorMessage(err){
   const text=String(err?.message||err||'');
+  /* Specific messages written by our own server are shown as-is. */
+  if(/client ID mismatch|not verified|only available for customer|not active|already linked|expired|no email|JWT_SECRET|users\.phone/i.test(text))return text;
   if(/404|not found|route/i.test(text))return 'JajiGo Google sign-in is not enabled on the marketplace backend yet. Please check POST /api/auth/google on the backend.';
   if(/client.?id|audience|authorized|origin|redirect/i.test(text))return "Google sign-in configuration is not matching JajiGo. The backend GOOGLE_CLIENT_ID must exactly match this app's Google client ID.";
-  if(/401|403|invalid|credential|token|verify/i.test(text))return 'Google could not verify this sign-in. Please make sure the JajiGo backend GOOGLE_CLIENT_ID matches the Google client ID used by this app, then try again.';
+  if(/could not verify|invalid|credential|token/i.test(text))return 'Google could not verify this sign-in. Please make sure the JajiGo backend GOOGLE_CLIENT_ID matches the Google client ID used by this app, then try again.';
   if(/connect|network|fetch|failed to fetch/i.test(text))return 'JajiGo could not reach the login server. Please check your internet connection and try again.';
   return text||'Google sign-in failed. Please try again.';
 }
