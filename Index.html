@@ -461,6 +461,7 @@ body:not(.auth-on) .sheet .inner.ai-sheet{
 }
 </style>
 
+<script src="https://js.paystack.co/v2/inline.js"></script>
 </head>
 <body>
 <div class="jg-ambient-icons" aria-hidden="true">
@@ -850,6 +851,7 @@ function categoryBySlug(slug){return S.categories.find(c=>c.slug===slug)||null}
 
 /* ---------- Sessions ---------- */
 const JAJIGO_API='https://jajigo-marketplace.onrender.com';
+const PAYSTACK_PUBLIC_KEY='pk_test_c5a85adceb18f4281e04a01ba4f40aa4adac43cd';
 function normEmail(v){return String(v||'').trim().toLowerCase()}
 function validEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
 async function apiAuth(path,body){
@@ -1737,7 +1739,7 @@ window.cartQty=function(id,qty){
 function openCheckout(confirmedFirst){
   const items=getCartItems();if(!items.length)return toast(L.empty_cart);
   const groups=groupCartByProvider(items),subtotal=cartSubtotal();
-  const myProfile=S.customers.find(c=>c.id===U.user.id),cfg={gateway_available:false};
+  const myProfile=S.customers.find(c=>c.id===U.user.id),cfg={gateway_available:!!(U&&U.remoteCustomer)};
   const initialDelivery=groups.reduce((s,g)=>s+g.delivery_fee,0),initialTotal=subtotal+initialDelivery;
   const html=`
   <div class="h1">${L.checkout}</div>
@@ -1751,8 +1753,8 @@ function openCheckout(confirmedFirst){
   </div>`).join('')}
   <div class="field" style="margin-top:10px"><label>${L.addr_lbl}</label><input id="cAddr" value="${esc(myProfile?.address||'')}" placeholder="${esc(L.addr_ph)}"></div>
   <div class="field"><label>${L.phone_lbl}</label><input id="cPhone" type="tel" value="${esc(myProfile?.phone||'')}"></div>
-  <div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option>${cfg.gateway_available?'':`<option value="card" disabled>💳 ${L.gateway}</option>`}</select>
-    ${cfg.gateway_available?'':`<div class="mut" style="font-size:12px;margin-top:5px">ℹ️ ${L.gateway_note}</div>`}</div>
+  <div class="field"><label>${L.pay_with}</label><select id="cPay"><option value="cash_on_delivery">${L.cod}</option><option value="bank_transfer">${L.bank}</option>${cfg.gateway_available?`<option value="paystack">💳 Pay with Paystack</option>`:`<option value="card" disabled>💳 ${L.gateway}</option>`}</select>
+    ${cfg.gateway_available?`<div class="mut" style="font-size:12px;margin-top:5px">🔒 Secure online payment by Paystack.</div>`:`<div class="mut" style="font-size:12px;margin-top:5px">ℹ️ ${L.gateway_note}</div>`}</div>
   <div class="mut" style="font-size:12px;margin-bottom:8px">${esc(S.bank_details||'')}</div>
   <div class="card" style="margin-top:8px"><div class="total-row"><span>${L.subtotal}</span><b id="cSub">${money(subtotal)}</b></div><div class="total-row"><span>${L.del_fee}</span><b id="cDf">${money(initialDelivery)}</b></div><div class="total-row big"><span>${L.total}</span><span id="cTotal" style="color:var(--g)">${money(initialTotal)}</span></div></div>
   <button class="btn" id="cGoMulti" style="margin-top:12px">👉 ${L.confirm_order} · <span id="cGoTotal">${money(initialTotal)}</span></button>`;
@@ -1772,15 +1774,12 @@ function openCheckout(confirmedFirst){
     const sums=calc();
     openSheet(`<div class="h1">${L.confirm_order}</div><div class="mut" style="margin-top:4px">${groups.length} provider order${groups.length===1?'':'s'} will be created.</div>
       <div class="card" style="margin-top:10px">${groups.map((g,i)=>`<div class="row" style="padding:7px 0;border-bottom:1px solid var(--line)"><span>🏪 ${esc(g.provider.business_name)}<br><small class="mut">${modes[i]==='customer_pickup'?L.pickup:L.pdelivery}</small></span><b>${money(g.subtotal+(modes[i]==='provider_delivery'?g.delivery_fee:0))}</b></div>`).join('')}
-      <div class="row" style="padding:7px 0"><span>📞</span><b>${esc(phone)}</b></div><div class="row" style="padding:7px 0"><span>${L.pay_with}</span><b>${pm==='cash_on_delivery'?L.cod:L.bank}</b></div><div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(sums.total)}</span></div></div>
+      <div class="row" style="padding:7px 0"><span>📞</span><b>${esc(phone)}</b></div><div class="row" style="padding:7px 0"><span>${L.pay_with}</span><b>${pm==='cash_on_delivery'?L.cod:pm==='paystack'?'💳 Paystack':L.bank}</b></div><div class="total-row big"><span>${L.total}</span><span style="color:var(--g)">${money(sums.total)}</span></div></div>
       <button class="btn" style="margin-top:14px" id="cFinal">✅ ${L.confirm_order}</button><button class="btn sec" style="margin-top:8px" onclick="openCheckout(true)">← Edit</button>`);
-    $('#cFinal').onclick=()=>{
+    $('#cFinal').onclick=async()=>{
       const btn=$('#cFinal');if(btn.disabled)return;
-      setButtonLoading(btn,true,'🔄 Placing your order...');
-      setTimeout(()=>{
-        try{placeOrders(modes,address,phone,pm,groups,subtotal);}
-        finally{setButtonLoading(btn,false);}
-      },20);
+      setButtonLoading(btn,true,pm==='paystack'?'💳 Starting secure payment...':'🔄 Placing your order...');
+      try{await window.jgSubmitCheckout(modes,address,phone,pm,groups,subtotal);}finally{setButtonLoading(btn,false);}
     };
   };
 }
@@ -4899,17 +4898,69 @@ window.jgRunIdSearch=function(qRaw){
       // The backend deliberately enforces one provider per order. Submit each provider group separately.
       const results=[];
       for(const g of groups){
-        const paymentModel=(opts&&opts.paymentModel)||(pm==='cash_on_delivery'?'provider_collected':'platform_collected');
+        const paymentModel=(opts&&opts.paymentModel)||(pm==='paystack'?'platform_collected':pm==='cash_on_delivery'?'provider_collected':'platform_collected');
         const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,order_type:orderType,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
         if(!r.ok){toast('❌ '+r.err);return false;} results.push(normalizeRemoteOrder(r.order));
       }
       mergeOrders(results);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes(results);toast('🎉 '+L.order_placed+' · '+results.length+' order'+(results.length===1?'':'s'));return true;
     }
     const g=groups[0];
-    const paymentModel=(opts&&opts.paymentModel)||(pm==='cash_on_delivery'?'provider_collected':'platform_collected');
+    const paymentModel=(opts&&opts.paymentModel)||(pm==='paystack'?'platform_collected':pm==='cash_on_delivery'?'provider_collected':'platform_collected');
     const r=await apiRequest('POST','/api/orders',{provider_id:Number(g.provider.id),payment_model:paymentModel,order_type:orderType,payment_method:pm,delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,items:g.items.map(i=>({product_id:Number(i.product.id),qty:Number(i.quantity)}))});
     if(!r.ok){toast('❌ '+r.err);return false;}
     const o=normalizeRemoteOrder(r.order);mergeOrders([o]);S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes([o]);toast('🎉 '+L.order_placed);return true;
+  };
+
+
+  /* Paystack checkout bridge for the live customer checkout. */
+  window.jgSubmitCheckout = async function(modes,address,phone,pm,groups,grandSubtotal){
+    if(!U?.remoteCustomer){
+      placeOrders(modes,address,phone,pm,groups,grandSubtotal);
+      return true;
+    }
+    const results=[];
+    for(let i=0;i<groups.length;i++){
+      const g=groups[i],mode=modes[i]||'customer_pickup';
+      const paymentModel=pm==='paystack'?'platform_collected':(pm==='cash_on_delivery'?'provider_collected':'platform_collected');
+      const r=await apiRequest('POST','/api/orders',{
+        provider_id:Number(g.provider.id),payment_model:paymentModel,order_type:'standard',payment_method:pm,
+        delivery_mode:mode,address:mode==='customer_pickup'?null:address,customer_phone:phone,
+        items:g.items.map(x=>({product_id:Number(x.product.id),qty:Number(x.quantity)}))
+      });
+      if(!r.ok){toast('❌ '+r.err);return false;}
+      results.push(normalizeRemoteOrder(r.order));
+    }
+    mergeOrders(results);saveState();
+
+    if(pm==='paystack'){
+      const init=await apiRequest('POST','/api/payments/paystack/initialize',{order_ids:results.map(o=>Number(o.id))});
+      if(!init.ok){toast('❌ '+init.err);return false;}
+      if(!window.PaystackPop){toast('❌ Paystack checkout could not load. Refresh and try again.');return false;}
+      closeSheet();
+      const popup=new PaystackPop();
+      let finished=false, polling=null, tries=0;
+      const verify=async()=>{
+        if(finished)return;
+        const v=await apiRequest('POST','/api/payments/paystack/verify',{reference:init.reference});
+        if(v.ok){
+          finished=true; if(polling)clearInterval(polling);
+          const paid=(v.orders||[]).map(normalizeRemoteOrder);mergeOrders(paid);
+          S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();
+          view.tab='orders';renderTab();jgShowNewOrderCodes(paid);toast('🎉 Payment successful · '+paid.length+' order'+(paid.length===1?'':'s'));
+          return;
+        }
+        tries++;
+        if(tries>=30){finished=true;if(polling)clearInterval(polling);toast('⏳ Payment is still being confirmed. Open Orders in a moment to refresh.');}
+      };
+      try{
+        popup.resumeTransaction(init.access_code);
+        polling=setInterval(verify,3000);
+        setTimeout(()=>{if(polling&&!finished){clearInterval(polling);polling=null;}},95000);
+      }catch(e){if(polling)clearInterval(polling);toast('❌ Could not open Paystack checkout.');console.error(e);}
+      return true;
+    }
+
+    S.cart_items=S.cart_items.filter(ci=>ci.cart_id!==U.user.id);saveState();updateBadges();closeSheet();view.tab='orders';renderTab();jgShowNewOrderCodes(results);toast('🎉 '+L.order_placed+' · '+results.length+' order'+(results.length===1?'':'s'));return true;
   };
 
   const localProvSetStatus=window.provSetStatus;
