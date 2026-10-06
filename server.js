@@ -1139,12 +1139,29 @@ app.get('/api/bootstrap', auth, async (req, res) => {
         req.auth.role === 'provider' ? [req.auth.sub] : []
       ),
       orders,
-      pool.query(
-        `SELECT p.*,pr.business_name
-         FROM products p JOIN providers pr ON pr.id=p.provider_id
-         WHERE p.is_available=true AND pr.status='approved'
-         ORDER BY p.id DESC`
-      )
+      // Customers see only available products of approved providers.
+      // A provider also gets ALL of their own products (including hidden/unavailable ones) so they do not vanish after a refresh.
+      // Admin gets everything.
+      req.auth.role === 'admin'
+        ? pool.query(
+            `SELECT p.*,pr.business_name
+             FROM products p JOIN providers pr ON pr.id=p.provider_id
+             ORDER BY p.id DESC`
+          )
+        : req.auth.role === 'provider'
+          ? pool.query(
+              `SELECT p.*,pr.business_name
+               FROM products p JOIN providers pr ON pr.id=p.provider_id
+               WHERE (p.is_available=true AND pr.status='approved') OR pr.user_id=$1
+               ORDER BY p.id DESC`,
+              [req.auth.sub]
+            )
+          : pool.query(
+              `SELECT p.*,pr.business_name
+               FROM products p JOIN providers pr ON pr.id=p.provider_id
+               WHERE p.is_available=true AND pr.status='approved'
+               ORDER BY p.id DESC`
+            )
     ]);
 
     const customersOut = c.rows.map(x => ({
