@@ -852,6 +852,19 @@ function categoryBySlug(slug){return S.categories.find(c=>c.slug===slug)||null}
 /* ---------- Sessions ---------- */
 const JAJIGO_API='https://jajigo-marketplace.onrender.com';
 const PAYSTACK_PUBLIC_KEY='pk_test_c5a85adceb18f4281e04a01ba4f40aa4adac43cd';
+/* Session guard: if the server rejects the login token (expired/invalid), clear the stale session and ask the user to log in again. */
+let __jgAuthExpiring=false;
+function jgIsAuthFailure(res,data){
+  const msg=String((data&&(data.error||data.message))||'');
+  return res.status===401||(res.status===403&&/token|jwt|expired|unauthor/i.test(msg))||/invalid token|jwt expired|token expired|invalid or expired|jwt malformed|invalid signature/i.test(msg);
+}
+function jgHandleExpiredSession(){
+  if(__jgAuthExpiring)return;
+  __jgAuthExpiring=true;
+  try{U=null;S.current=null;saveState();}catch(e){}
+  try{toast('Your session expired. Please log in again, then retry your payment.');}catch(e){}
+  setTimeout(()=>{try{showAuth();}catch(e){location.reload();}__jgAuthExpiring=false;},900);
+}
 function normEmail(v){return String(v||'').trim().toLowerCase()}
 function validEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
 async function apiAuth(path,body){
@@ -868,6 +881,7 @@ async function apiGet(path){
     if(U?.token&&U.token!=='local')headers.Authorization='Bearer '+U.token;
     const res=await fetch(JAJIGO_API+path,{method:'GET',headers});
     const data=await res.json().catch(()=>({ok:false,error:'Server returned an invalid response.'}));
+    if(U?.token&&U.token!=='local'&&!res.ok&&jgIsAuthFailure(res,data)){jgHandleExpiredSession();return{ok:false,err:'Your session expired. Please log in again.',status:res.status,authExpired:true};}
     if(!res.ok||!data.ok)return{ok:false,err:data.error||'Request failed. Please try again.'};
     return{ok:true,...data};
   }catch(e){console.error('JajiGo GET error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
@@ -880,6 +894,7 @@ async function apiRequest(method,path,body){
     if(body!==undefined)opts.body=JSON.stringify(body);
     const res=await fetch(JAJIGO_API+path,opts);
     const data=await res.json().catch(()=>({ok:false,error:'Server returned an invalid response.'}));
+    if(U?.token&&U.token!=='local'&&!res.ok&&jgIsAuthFailure(res,data)){jgHandleExpiredSession();return{ok:false,err:'Your session expired. Please log in again.',status:res.status,authExpired:true};}
     if(!res.ok||!data.ok)return{ok:false,err:data.error||data.message||'Request failed. Please try again.',status:res.status,...data};
     return{ok:true,status:res.status,...data};
   }catch(e){console.error('JajiGo API error:',e);return{ok:false,err:'Could not connect to JajiGo. Please check your internet and try again.'};}
@@ -4948,7 +4963,7 @@ window.jgRunIdSearch=function(qRaw){
 
     if(pm==='paystack'){
       const init=await apiRequest('POST','/api/payments/paystack/initialize',{order_ids:results.map(o=>Number(o.id))});
-      if(!init.ok){toast('❌ '+init.err);return false;}
+      if(!init.ok){if(!init.authExpired)toast('❌ '+init.err+' Your order was saved as pending in Orders; you can retry payment there.');return false;}
       if(!window.PaystackPop){toast('❌ Paystack checkout could not load. Refresh and try again.');return false;}
       closeSheet();
       const popup=new PaystackPop();
@@ -4956,6 +4971,7 @@ window.jgRunIdSearch=function(qRaw){
       const verify=async()=>{
         if(finished)return;
         const v=await apiRequest('POST','/api/payments/paystack/verify',{reference:init.reference});
+        if(v.authExpired){finished=true;if(polling)clearInterval(polling);return;}
         if(v.ok){
           finished=true; if(polling)clearInterval(polling);
           const paid=(v.orders||[]).map(normalizeRemoteOrder);mergeOrders(paid);
